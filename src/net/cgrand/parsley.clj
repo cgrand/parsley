@@ -14,7 +14,7 @@
  
 ;;;;;;;;;;;;;; ops interpreter
 ;;;; op interpreter fn
-(defmulti interpret-op (fn [_ op _ _] (type op)))
+(defmulti #^{:private true} interpret-op (fn [_ op _ _] (type op)))
 
 ;; ref
 (defmethod interpret-op clojure.lang.Keyword [rules kw s _]
