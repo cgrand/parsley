@@ -1,4 +1,5 @@
-(ns net.cgrand.parsley)
+(ns net.cgrand.parsley
+  "An experimental undocumented parser lib/DSL.")
 
 ;; Parsley can parse ambiguous grammars and thus returns several results.
 ;; no support for left recursion (yet)
