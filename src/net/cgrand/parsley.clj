@@ -284,4 +284,5 @@
   nil)
 ;;> ((:main (:expr "()") (:expr "(" (:expr (:symbol "hello")) ")")))
 ;;> ((:main (:expr "(" (:expr (:symbol "bonjour")) ")") (:expr "(" (:expr (:symbol "hello")) ")")))
+;;> ((:main (:expr "(" (:expr (:symbol "bonjour")) (:w " ") (:expr (:symbol "hello")) ")")))
 )
