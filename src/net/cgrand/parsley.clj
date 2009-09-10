@@ -158,6 +158,10 @@
         stitch1 (::stitch m)]
     (with-meta (stitch* stitch1 a b) m))) 
 
+(defn stitchable? [a b]
+  (let [b-keys (set (map first b))]
+    (every? #(b-keys (% 2)) a))) 
+
 (defn results [states]
   (for [[_ result ops] states :when (empty? ops)] result)) 
 
