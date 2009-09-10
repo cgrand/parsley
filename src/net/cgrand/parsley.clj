@@ -1,57 +1,61 @@
 (ns net.cgrand.parsley)
 
-;; a parser is a function that takes a chunk of text (a String) and returns
-;; a coll of [events n conts]
-
-(defmulti interpret-cont (fn [_ cont _] (type cont)))
+;;;;;;;;;;;;;; grammar interpreter
+;;;; op interpreter fn
+(defmulti interpret-cont (fn [_ cont _ _] (type cont)))
 
 ;; ref
-(defmethod interpret-cont clojure.lang.Keyword [grammar kw s]
+(defmethod interpret-cont clojure.lang.Keyword [grammar kw s _]
   [[nil s [(grammar kw)]]])
 
 ;; alternative
-(defmethod interpret-cont clojure.lang.IPersistentSet [_ conts s]
+(defmethod interpret-cont clojure.lang.IPersistentSet [_ conts s _]
   (map (fn [cont] [nil s [cont]]) conts)) 
   
 ;; sequence
-(defmethod interpret-cont clojure.lang.IPersistentVector [_ conts s]
+(defmethod interpret-cont clojure.lang.IPersistentVector [_ conts s _]
   [[nil s conts]])
 
 ;; terminal
-(defmethod interpret-cont String [_ #^String terminal #^String s]
+(defmethod interpret-cont String [_ #^String terminal #^String s eof]
   (let [n (count terminal)]
     (cond 
       (< (count s) n)
-        [[nil nil [{:buffer s :cont terminal}]]]
+        (when-not eof
+          [[nil nil [{:buffer s :cont terminal}]]])
       (.startsWith s terminal)
         [[[terminal] (subs s (count terminal)) nil]])))
 
 ;; regex
 (defmethod interpret-cont java.util.regex.Pattern 
- [_ #^java.util.regex.Pattern pattern #^String s]
+ [_ #^java.util.regex.Pattern pattern #^String s eof]
   (let [matcher (.matcher pattern s)
         found (.lookingAt matcher)]
     (cond
-      (.hitEnd matcher) 
-        [[nil nil [{:buffer s :cont pattern}]]]
+      (.hitEnd matcher)
+        (if (and eof found)
+          [[[(.group matcher)] (subs s (.end matcher)) nil]]
+          [[nil nil [{:buffer s :cont pattern}]]])
       found 
         [[[(.group matcher)] (subs s (.end matcher)) nil]])))
     
 ;; pass
-(defmethod interpret-cont nil [_ _ s]
+(defmethod interpret-cont nil [_ _ s _]
   [[nil s nil]])
 
+;; buffer
 (defmethod interpret-cont clojure.lang.IPersistentMap 
- [grammar {:keys [buffer cont]} s]
+ [grammar {:keys [buffer cont]} s _]
   [[nil (str buffer s) [cont]]])
 
 ;; fn
-(defmethod interpret-cont clojure.lang.Fn [grammar cont s]
-  (cont s))
+(defmethod interpret-cont clojure.lang.Fn [grammar f s eof]
+  (f s eof))
 
-(defn- interpreter-step1 [f grammar s [_ acc conts]]
+;;;; interpreter "loop" for 1 state
+(defn- interpreter-step1 [f grammar s eof [_ acc conts]]
   (let [k conts
-        step1 (fn [s acc conts]
+        step1 (fn step1 [s acc conts]
                 (if-let [[cont & next-conts] (seq conts)]
                   (mapcat (fn [[ops s conts]]
                             (let [acc (reduce f acc ops)
@@ -59,24 +63,26 @@
                                 (if s
                                   (step1 s acc conts)  
                                   [[k acc conts]])))
-                    (interpret-cont grammar cont s))
+                    (interpret-cont grammar cont s eof))
                   (when (empty? s)
                     [[k acc nil]])))]
     (step1 s acc conts)))
 
-(defn- interpreter-step [f grammar states s]
+;; interpreter "loop" for "simultaneous" states
+(defn- interpreter-step [f grammar states s eof]
   (mapcat (partial interpreter-step1 f grammar s) states))
 
+;;;; helpers
 (defn- start-span [class] 
   (let [ops [[:start-span class]]]
-    (fn [s] [[ops s nil]])))  
+    (fn [s _] [[ops s nil]])))  
 
 (defn- end-span [class] 
   (let [ops [[:end-span class]]]
-    (fn [s] [[ops s nil]])))  
+    (fn [s _] [[ops s nil]])))  
 
 (defn- zero-or-more [parser]
-  (fn self [s] [[nil s nil] [nil s [parser self]]])) 
+  (fn self [s _] [[nil s nil] [nil s [parser self]]])) 
 
 ;;;;;;;;;;;;;;;;;;;;;;
 (defn- group-reduce 
@@ -90,7 +96,7 @@
     (mapcat (fn [[k a conts]]
               (for [[_ b conts] (states-b-by-k k)] [k (op a b)])) states-a)))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;; UNFINISHED / GARBAGE
 (defn- step-stack [stack op]
   (if (vector? op)
     (condp = (first op)
