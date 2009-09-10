@@ -105,7 +105,18 @@
   fun ["#(" expr * ")"]
   expr #{list vector map set fun}]
  ; :whitespace XXX
- :main expr))
+ :main expr)
+ 
+ ;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(def g (grammar [expr #{"-" ["(" expr * ")"]}] :main expr))
+
+(def a (grammar
+         {sum #{:prod [:prod "+" :sum]}
+          prod #{:num [:num "*" :prod]}
+          num #{"1" "0" ["(" :sum ")"]}}
+         :main sum))
+ )
 
 (defn parser* [rules main seed reducer stitch]
  (with-meta [[nil seed [main]]] 
@@ -220,13 +231,3 @@
         {:keys [main seed reducer stitch]} options 
         main (or main (if (= 1 (count rules)) (key (first rules)) :main))] 
     `(parser* ~rules ~main ~seed ~reducer ~stitch)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(def g (grammar [expr #{"-" ["(" expr * ")"]}] :main expr))
-
-(def a (grammar
-         {sum #{:prod [:prod "+" :sum]}
-          prod #{:num [:num "*" :prod]}
-          num #{"1" "0" ["(" :sum ")"]}}
-         :main sum))
