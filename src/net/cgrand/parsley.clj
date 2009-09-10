@@ -79,7 +79,7 @@
 
 ;; interpreter "loop" for "simultaneous" states
 (defn- interpreter-step [f rules states s eof]
-  (mapcat (partial interpreter-step1 f rules (or s "")) states))
+  (mapcat (partial interpreter-step1 f rules (or s "") eof) states))
 
 ;;;; helpers
 (defn- start-span [class] 
@@ -144,8 +144,8 @@
 
 (defn- stitch* [stitch1 states-a states-b]
   (let [states-b-by-k (group-reduce first conj #{} states-b)]
-    (mapcat (fn [[k a ops]]
-              (for [[_ b ops] (states-b-by-k k)] [k (stitch1 a b)])) 
+    (mapcat (fn [[k a ops-a]]
+              (for [[_ b ops] (states-b-by-k ops-a)] [k (stitch1 a b) ops])) 
       states-a)))
               
 (defn stitch [a b]
@@ -178,7 +178,7 @@
   x)
 
 (defn- compile-rule [[name rhs]]
-  `[~(keyword name) (span-parser ~(keyword name) ~(compile-spec rhs))]) 
+  `[~name [(start-span ~name) ~(compile-spec rhs) (end-span ~name)]]) 
       
 (defn span [class contents]
   (if (string? contents)
@@ -190,7 +190,7 @@
 
 (defn- alter-top [stack f & args]
   (if (seq stack)
-    (conj (pop stack) (apply (peek stack) f args))
+    (conj (pop stack) (apply f (peek stack) args))
     stack))
 
 (defn- push-string [stack s]
@@ -199,31 +199,30 @@
     (conj stack s)))
 
 (defn default-reducer [[events stack] event]
-  (if (seq stack)
-    (cond 
-      (string? event)
-        [events (alter-top stack push-string event)]
-      (map? event)
-        [events (alter-top stack conj event)]
-      (= (first event) :start-span)
-        [events (conj stack [])]
-      (= (first event) :end-span)
-        (if (seq stack)
-          [(conj events event) stack]
+  (cond
+    (= (first event) :start-span)
+      [events (conj stack [])]
+    (seq stack)
+      (cond 
+        (string? event)
+          [events (alter-top stack push-string event)]
+        (map? event)
+          [events (alter-top stack conj event)]
+        (= (first event) :end-span)
           (let [span (span (second event) (peek stack))
                 etc (pop stack)]
             (if (seq etc)
               [events (alter-top etc conj span)]
-              [(conj events span) etc]))))
-    [(conj events event) stack]))
+              [(conj events span) etc])))
+    :else
+      [(conj events event) stack]))
 
 (defn default-stitch [a [events-b stack-b]]
   (let [[events stack] (reduce default-reducer a events-b)]
     [events (into stack stack-b)]))
 
 (defmacro parser [rules & options]
-  (let [rules (reduce (fn [rules [k v]] (assoc rules k (compile-spec v))) 
-                {} (partition 2 rules))
+  (let [rules (into {} (map compile-rule rules))
         default-opts {:seed `default-seed
                       :reducer `default-reducer 
                       :stitch `default-stitch}
@@ -231,3 +230,44 @@
         {:keys [main seed reducer stitch]} options 
         main (or main (if (= 1 (count rules)) (key (first rules)) :main))] 
     `(parser* ~rules ~main ~seed ~reducer ~stitch)))
+
+(comment
+;;;;;;;;;; EXAMPLE USAGE
+(def simple-lisp 
+  (parser 
+    {:main [[:w ? :expr]* :w ?]
+     :expr #{:symbol ["("[:w ? :expr]* :w ? ")"]}
+     :symbol #"\w+"
+     :w #"\s+"}))   
+
+;; helper functions to display results in a more readable way 
+(defn terse-result [[items _]]
+  (map (fn self [item]
+         (if (map? item)
+           (cons (:class item) (map self (:contents item)))
+           item)) items))
+
+(defn prn-terse [results]
+  (doseq [result results]
+    (prn (terse-result result))))
+    
+;; let's parse this snippet
+(-> simple-lisp (step "()(hello)") results prn-terse)
+;;> ((:main (:expr "()") (:expr "(" (:expr (:symbol "hello")) ")")))
+
+;; let's parse this snippet in two steps
+(-> simple-lisp (step "()(hel") (step "lo)") results prn-terse)
+;;> ((:main (:expr "()") (:expr "(" (:expr (:symbol "hello")) ")")))
+
+;; and now, the incremental parsing!
+(let [c1 (-> simple-lisp reset (step "()(hel"))
+      c2 (-> c1 reset (step "lo)" nil))
+      _ (-> (stitch c1 c2) results prn-terse) ; business as usual
+      c1b (-> simple-lisp reset (step "(bonjour)(hel")) ; an updated 1st chunk
+      _ (-> (stitch c1b c2) results prn-terse) 
+      c1t (-> simple-lisp reset (step "(bonjour hel")) ; an updated 1st chunk
+      _ (-> (stitch c1t c2) results prn-terse)] 
+  nil)
+;;> ((:main (:expr "()") (:expr "(" (:expr (:symbol "hello")) ")")))
+;;> ((:main (:expr "(" (:expr (:symbol "bonjour")) ")") (:expr "(" (:expr (:symbol "hello")) ")")))
+)
