@@ -1,8 +1,16 @@
 (ns net.cgrand.parsley)
 
 ;; Parsley can parse ambiguous grammars and thus returns several results.
+
+;; * a rule is made of _ops_
+;; * parsing produces _events_
+;; * the end result of a parse is (reduce reducer seed events)
+;; * a parser's stitch function (eg default-stitch) must be associative
+;;   and the parser's seed must be its zero (identity element)
+;;   furthermore (stitch x (reduce reducer y events)) must be equal to
+;;   (reduce (stitch x y) events) 
  
-;;;;;;;;;;;;;; grammar-rules interpreter
+;;;;;;;;;;;;;; ops interpreter
 ;;;; op interpreter fn
 (defmulti interpret-op (fn [_ op _ _] (type op)))
 
