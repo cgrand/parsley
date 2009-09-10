@@ -1,6 +1,7 @@
 (ns net.cgrand.parsley)
 
 ;; Parsley can parse ambiguous grammars and thus returns several results.
+;; no support for left recursion (yet)
 
 ;; * a rule is made of _ops_
 ;; * parsing produces _events_
