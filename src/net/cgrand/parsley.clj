@@ -170,14 +170,18 @@
 
 (defmulti #^{:private true} compile-spec type)
 
+(defn- cat [& args]
+  (vec (mapcat #(if (or (nil? %) (vector? %)) % [%]) args))) 
+
 ;; a run
 (defmethod compile-spec clojure.lang.IPersistentVector [v]
-  (reduce (fn [v x]
-    (cond
-      (= '* x) (conj (pop v) (zero-or-more (peek v)))
-      (= '+ x) (conj v (zero-or-more (peek v)))
-      (= '? x) (conj (pop v) #{(peek v) nil})
-      :else (conj v x))) [] (map compile-spec v)))
+  (apply cat 
+    (reduce (fn [v x]
+      (cond
+        (= '* x) (conj (pop v) (zero-or-more (peek v)))
+        (= '+ x) (conj v (zero-or-more (peek v)))
+        (= '? x) (conj (pop v) #{(peek v) nil})
+        :else (conj v x))) [] (map compile-spec v))))
 
 ;; an alternative
 (defmethod compile-spec clojure.lang.IPersistentSet [s]
@@ -188,7 +192,7 @@
   x)
 
 (defn- compile-rule [[name rhs]]
-  `[~name [(start-span ~name) ~(compile-spec rhs) (end-span ~name)]]) 
+  `[~name (cat (start-span ~name) ~(compile-spec rhs) (end-span ~name))]) 
       
 (defn span [class contents]
   (if (string? contents)
