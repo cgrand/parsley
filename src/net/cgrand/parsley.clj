@@ -119,6 +119,10 @@
          :main sum))
  )
 
+;; reducer: partial-result * event -> partial-result
+;; seed: partial-result
+;; stitch: partial-result * partial-result -> partial-result
+;; partial-result, seed and stitch must define a monoid
 (defn parser* [rules main seed reducer stitch]
  (with-meta [[nil seed [main]]] 
     {::rules rules 
