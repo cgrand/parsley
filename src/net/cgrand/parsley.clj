@@ -1,33 +1,35 @@
 (ns net.cgrand.parsley)
 
-;;;;;;;;;;;;;; grammar interpreter
+;; Parsley can parse ambiguous grammars and thus returns several results.
+ 
+;;;;;;;;;;;;;; grammar-rules interpreter
 ;;;; op interpreter fn
-(defmulti interpret-cont (fn [_ cont _ _] (type cont)))
+(defmulti interpret-op (fn [_ op _ _] (type op)))
 
 ;; ref
-(defmethod interpret-cont clojure.lang.Keyword [grammar kw s _]
-  [[nil s [(grammar kw)]]])
+(defmethod interpret-op clojure.lang.Keyword [rules kw s _]
+  [[nil s [(rules kw)]]])
 
 ;; alternative
-(defmethod interpret-cont clojure.lang.IPersistentSet [_ conts s _]
-  (map (fn [cont] [nil s [cont]]) conts)) 
+(defmethod interpret-op clojure.lang.IPersistentSet [_ ops s _]
+  (map (fn [op] [nil s [op]]) ops)) 
   
 ;; sequence
-(defmethod interpret-cont clojure.lang.IPersistentVector [_ conts s _]
-  [[nil s conts]])
+(defmethod interpret-op clojure.lang.IPersistentVector [_ ops s _]
+  [[nil s ops]])
 
 ;; terminal
-(defmethod interpret-cont String [_ #^String terminal #^String s eof]
+(defmethod interpret-op String [_ #^String terminal #^String s eof]
   (let [n (count terminal)]
     (cond 
       (< (count s) n)
         (when-not eof
-          [[nil nil [{:buffer s :cont terminal}]]])
+          [[nil nil [{:buffer s :op terminal}]]])
       (.startsWith s terminal)
         [[[terminal] (subs s (count terminal)) nil]])))
 
 ;; regex
-(defmethod interpret-cont java.util.regex.Pattern 
+(defmethod interpret-op java.util.regex.Pattern 
  [_ #^java.util.regex.Pattern pattern #^String s eof]
   (let [matcher (.matcher pattern s)
         found (.lookingAt matcher)]
@@ -35,88 +37,57 @@
       (.hitEnd matcher)
         (if (and eof found)
           [[[(.group matcher)] (subs s (.end matcher)) nil]]
-          [[nil nil [{:buffer s :cont pattern}]]])
+          [[nil nil [{:buffer s :op pattern}]]])
       found 
         [[[(.group matcher)] (subs s (.end matcher)) nil]])))
     
 ;; pass
-(defmethod interpret-cont nil [_ _ s _]
+(defmethod interpret-op nil [_ _ s _]
   [[nil s nil]])
 
 ;; buffer
-(defmethod interpret-cont clojure.lang.IPersistentMap 
- [grammar {:keys [buffer cont]} s _]
-  [[nil (str buffer s) [cont]]])
+(defmethod interpret-op clojure.lang.IPersistentMap [_ {:keys [buffer op]} s _]
+  [[nil (str buffer s) [op]]])
 
 ;; fn
-(defmethod interpret-cont clojure.lang.Fn [grammar f s eof]
+(defmethod interpret-op clojure.lang.Fn [_ f s eof]
   (f s eof))
 
 ;;;; interpreter "loop" for 1 state
-(defn- interpreter-step1 [f grammar s eof [_ acc conts]]
-  (let [k conts
-        step1 (fn step1 [s acc conts]
-                (if-let [[cont & next-conts] (seq conts)]
-                  (mapcat (fn [[ops s conts]]
-                            (let [acc (reduce f acc ops)
-                                  conts (concat conts next-conts)]
+(defn- interpreter-step1 [f rules s eof [_ acc ops]]
+  (let [k ops
+        step1 (fn step1 [s acc ops]
+                (if-let [[op & next-ops] (seq ops)]
+                  (mapcat (fn [[events s ops]]
+                            (let [acc (reduce f acc events)
+                                  ops (concat ops next-ops)]
                                 (if s
-                                  (step1 s acc conts)  
-                                  [[k acc conts]])))
-                    (interpret-cont grammar cont s eof))
+                                  (step1 s acc ops)  
+                                  [[k acc ops]])))
+                    (interpret-op rules op s eof))
                   (when (empty? s)
                     [[k acc nil]])))]
-    (step1 s acc conts)))
+    (step1 s acc ops)))
 
 ;; interpreter "loop" for "simultaneous" states
-(defn- interpreter-step [f grammar states s eof]
-  (mapcat (partial interpreter-step1 f grammar s) states))
+(defn- interpreter-step [f rules states s eof]
+  (mapcat (partial interpreter-step1 f rules (or s "")) states))
 
 ;;;; helpers
 (defn- start-span [class] 
-  (let [ops [[:start-span class]]]
-    (fn [s _] [[ops s nil]])))  
+  (let [events [[:start-span class]]]
+    (fn [s _] [[events s nil]])))  
 
 (defn- end-span [class] 
-  (let [ops [[:end-span class]]]
-    (fn [s _] [[ops s nil]])))  
+  (let [events [[:end-span class]]]
+    (fn [s _] [[events s nil]])))  
 
 (defn- zero-or-more [parser]
   (fn self [s _] [[nil s nil] [nil s [parser self]]])) 
 
-;;;;;;;;;;;;;;;;;;;;;;
-(defn- group-reduce 
- [k f seed coll]
-  (persistent! (reduce #(let [key (k %2)]
-                          (assoc! %1 key (f (%1 key seed) %2)))
-                 (transient {}) coll)))
 
-(defn stitch [op states-a states-b]
-  (let [states-b-by-k (group-reduce first conj #{} states-b)]
-    (mapcat (fn [[k a conts]]
-              (for [[_ b conts] (states-b-by-k k)] [k (op a b)])) states-a)))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;; UNFINISHED / GARBAGE
-(defn- step-stack [stack op]
-  (if (vector? op)
-    (condp = (first op)
-      :start-span (cons [] stack)
-      :end-span (let [[contents top & stack] stack
-                      span (span (second op) contents)]
-                  (when top
-                    (cons (conj top span) stack))))
-    (let [[top & stack] stack]
-      (cons (conj top op) stack))))
 
-(defn len [events] 
-  (reduce + 0 (map #(:length % 0) events)))
-
-(defn span [class contents]
-  (if (string? contents)
-    {:class class :contents nil :text contents :length (count contents)}
-    {:class class :contents contents :length (len contents)}))   
-
-      
 (comment
 (defgrammar
  [list ["(" expr * ")"]
@@ -128,7 +99,47 @@
  ; :whitespace XXX
  :main expr))
 
-(defmulti compile-spec type x)
+(defn parser* [rules main seed reducer stitch]
+ (with-meta [[nil seed [main]]] 
+    {::rules rules 
+     ::seed seed 
+     ::reducer reducer 
+     ::stitch stitch})) 
+
+(defn step 
+  ([states s] (step states s (not s)))
+  ([states s eof]
+    (let [{f ::reducer rules ::rules :as m} (meta states)]
+      (with-meta (distinct (interpreter-step f rules states s eof)) m))))
+  
+(defn reset [states]
+  (let [m (meta states)
+        seed (::seed m)]
+    (with-meta (map (fn [[k _ ops]] [k seed ops]) states) m)))
+
+(defn- group-reduce 
+ [k f seed coll]
+  (persistent! (reduce #(let [key (k %2)]
+                          (assoc! %1 key (f (%1 key seed) %2)))
+                 (transient {}) coll)))
+
+(defn- stitch* [stitch1 states-a states-b]
+  (let [states-b-by-k (group-reduce first conj #{} states-b)]
+    (mapcat (fn [[k a ops]]
+              (for [[_ b ops] (states-b-by-k k)] [k (stitch1 a b)])) 
+      states-a)))
+              
+(defn stitch [a b]
+  (let [m (meta a)
+        stitch1 (::stitch m)]
+    (with-meta (stitch* stitch1 a b) m))) 
+
+(defn results [states]
+  (for [[_ result ops] states :when (empty? ops)] result)) 
+
+
+
+(defmulti #^{:private true} compile-spec type)
 
 ;; a run
 (defmethod compile-spec clojure.lang.IPersistentVector [v]
@@ -141,33 +152,68 @@
 
 ;; an alternative
 (defmethod compile-spec clojure.lang.IPersistentSet [s]
-  `#{~@(map compile-spec s}))
+  (set (map compile-spec s)))
 
 ;; else
 (defmethod compile-spec :default [x]
   x)
 
-(defn grammar* [grammar main-rule]
-  (let [main ((Y grammar) main-rule)]
-    [['([]) [main]]])) 
-
-(defn- compile-rule [grammar-sym [name rhs]]
-  `[~(keyword name) (span-parser ~(keyword name) ~(compile-spec grammar-sym rhs))]) 
+(defn- compile-rule [[name rhs]]
+  `[~(keyword name) (span-parser ~(keyword name) ~(compile-spec rhs))]) 
       
-(defn- compile-rec-rule [grammar-sym [sym _]] 
-  `(~sym [s#] 
-     ((~grammar-sym ~(keyword sym)) s#)))
-  
-(defmacro grammar [rules & options]
+(defn span [class contents]
+  (if (string? contents)
+    {:class class :contents nil :text contents :length (count contents)}
+    {:class class :contents contents 
+     :length (reduce #(+ %1 (or (:length %2) (count %2))) 0 contents)}))   
+
+(def default-seed [[] []])
+
+(defn- alter-top [stack f & args]
+  (if (seq stack)
+    (conj (pop stack) (apply (peek stack) f args))
+    stack))
+
+(defn- push-string [stack s]
+  (if (string? (peek stack))
+    (conj (pop stack) (str (peek stack) s))
+    (conj stack s)))
+
+(defn default-reducer [[events stack] event]
+  (if (seq stack)
+    (cond 
+      (string? event)
+        [events (alter-top stack push-string event)]
+      (map? event)
+        [events (alter-top stack conj event)]
+      (= (first event) :start-span)
+        [events (conj stack [])]
+      (= (first event) :end-span)
+        (if (seq stack)
+          [(conj events event) stack]
+          (let [span (span (second event) (peek stack))
+                etc (pop stack)]
+            (if (seq etc)
+              [events (alter-top etc conj span)]
+              [(conj events span) etc]))))
+    [(conj events event) stack]))
+
+(defn default-stitch [a [events-b stack-b]]
+  (let [[events stack] (reduce default-reducer a events-b)]
+    [events (into stack stack-b)]))
+
+(defmacro parser [rules & options]
   (let [rules (reduce (fn [rules [k v]] (assoc rules k (compile-spec v))) 
                 {} (partition 2 rules))
-        {:keys [main]} (apply hash-map options)
+        default-opts {:seed `default-seed
+                      :reducer `default-reducer 
+                      :stitch `default-stitch}
+        options (into default-opts (apply hash-map options))
+        {:keys [main seed reducer stitch]} options 
         main (or main (if (= 1 (count rules)) (key (first rules)) :main))] 
-    `(grammar* 
-       (fn [~grammar-sym]
-         (letfn [~@(map (partial compile-rec-rule grammar-sym) rules)]
-           ~(into {} (map (partial compile-rule grammar-sym) rules)))) 
-       ~(keyword main))))
+    `(parser* ~rules ~main ~seed ~reducer ~stitch)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (def g (grammar [expr #{"-" ["(" expr * ")"]}] :main expr))
 
