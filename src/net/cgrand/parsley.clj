@@ -103,6 +103,9 @@
   ([states s eof]
     (let [{f ::reducer rules ::rules :as m} (meta states)]
       (with-meta (distinct (interpreter-step f rules states s eof)) m))))
+      
+(defn eof [states]
+  (step states nil))
   
 (defn reset [states]
   (let [m (meta states)
