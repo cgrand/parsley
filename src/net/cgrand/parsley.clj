@@ -176,11 +176,12 @@
 (defmethod compile-spec clojure.lang.IPersistentVector [space v]
   (apply interposed-cat space 
     (reduce (fn [v x]
-      (cond
-        (= '* x) (conj (pop v) (compile-repeat space (peek v)))
-        (= '+ x) (conj v (compile-repeat space (peek v)))
-        (= '? x) (conj (pop v) #{(peek v) nil})
-        :else (conj v x))) [] (map (partial compile-spec space) v))))
+              (condp = x
+                '* (conj (pop v) (compile-repeat space (peek v)))
+                '+ (conj v (compile-repeat space (peek v)))
+                '? (conj (pop v) #{(peek v) nil})
+                (conj v x))) 
+      [] (map (partial compile-spec space) v))))
 
 ;; an alternative
 (defmethod compile-spec clojure.lang.IPersistentSet [space s]
@@ -193,6 +194,14 @@
 ;; a terminal
 (defmethod compile-spec String [_ word]
   (terminal word))
+
+;; a ref to another rule
+(defmethod compile-spec clojure.lang.Keyword [space kw]
+  (let [n (name kw)]
+    (if-let [x (#{\* \? \+} (last n))]
+      (compile-spec space 
+        [(keyword (subs n 0 (dec (count n)))) (symbol (str x))])
+      kw)))
 
 ;; else
 (defmethod compile-spec :default [_ x]
@@ -257,44 +266,3 @@
                     (partition 2 rules)))
           main (or main (if (= 1 (count rules)) (key (first rules)) :main))] 
       `(parser* ~rules ~main ~seed ~reducer ~stitch))))
-
-(comment
-;;;;;;;;;; EXAMPLE USAGE
-(def simple-lisp 
-  (parser {:space #"\s+"} 
-    :main [:expr *]
-    :expr #{:symbol ["(" :expr * ")"]}
-    :symbol #"\w+"))   
-
-;; helper functions to display results in a more readable way 
-(defn terse-result [[items _]]
-  (map (fn self [item]
-         (if (map? item)
-           (cons (:class item) (map self (:contents item)))
-           item)) items))
-
-(defn prn-terse [results]
-  (doseq [result results]
-    (prn (terse-result result))))
-    
-;; let's parse this snippet
-(-> simple-lisp (step "()(hello)") results prn-terse)
-;;> ((:main (:expr "()") (:expr "(" (:expr (:symbol "hello")) ")")))
-
-;; let's parse this snippet in two steps
-(-> simple-lisp (step "()(hel") (step "lo)") results prn-terse)
-;;> ((:main (:expr "()") (:expr "(" (:expr (:symbol "hello")) ")")))
-
-;; and now, the incremental parsing!
-(let [c1 (-> simple-lisp reset (step "()(hel"))
-      c2 (-> c1 reset (step "lo)" nil))
-      _ (-> (stitch c1 c2) results prn-terse) ; business as usual
-      c1b (-> simple-lisp reset (step "(bonjour)(hel")) ; an updated 1st chunk
-      _ (-> (stitch c1b c2) results prn-terse) 
-      c1t (-> simple-lisp reset (step "(bonjour hel")) ; an updated 1st chunk
-      _ (-> (stitch c1t c2) results prn-terse)] 
-  nil)
-;;> ((:main (:expr "()") (:expr "(" (:expr (:symbol "hello")) ")")))
-;;> ((:main (:expr "(" (:expr (:symbol "bonjour")) ")") (:expr "(" (:expr (:symbol "hello")) ")")))
-;;> ((:main (:expr "(" (:expr (:symbol "bonjour")) (:w " ") (:expr (:symbol "hello")) ")")))
-)
