@@ -211,24 +211,26 @@
   (let [[events stack] (reduce default-reducer a events-b)]
     [events (into stack stack-b)]))
 
-(defmacro parser [rules & options]
-  (let [rules (into {} (map compile-rule rules))
-        default-opts {:seed `default-seed
-                      :reducer `default-reducer 
-                      :stitch `default-stitch}
-        options (into default-opts (apply hash-map options))
-        {:keys [main seed reducer stitch]} options 
-        main (or main (if (= 1 (count rules)) (key (first rules)) :main))] 
-    `(parser* ~rules ~main ~seed ~reducer ~stitch)))
+(defmacro parser [options & rules ]
+  (if (keyword? options)
+    `(parser nil ~options ~@rules) 
+    (let [default-opts {:seed `default-seed
+                        :reducer `default-reducer 
+                        :stitch `default-stitch}
+          options (into default-opts options)
+          {:keys [main seed reducer stitch]} options
+          rules (into {} (map compile-rule (partition 2 rules)))
+          main (or main (if (= 1 (count rules)) (key (first rules)) :main))] 
+      `(parser* ~rules ~main ~seed ~reducer ~stitch))))
 
 (comment
 ;;;;;;;;;; EXAMPLE USAGE
 (def simple-lisp 
   (parser 
-    {:main [[:w ? :expr]* :w ?]
-     :expr #{:symbol ["("[:w ? :expr]* :w ? ")"]}
-     :symbol #"\w+"
-     :w #"\s+"}))   
+    :main [[:w ? :expr]* :w ?]
+    :expr #{:symbol ["("[:w ? :expr]* :w ? ")"]}
+    :symbol #"\w+"
+    :w #"\s+"))   
 
 ;; helper functions to display results in a more readable way 
 (defn terse-result [[items _]]
