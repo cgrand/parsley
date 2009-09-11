@@ -3,10 +3,43 @@
      :only [parser step reset stitch results stitchable?]] :reload))
      
 (def simple-lisp 
-  (parser {:space #"\s+"} 
-    :main :expr*
+  (parser {:space #"\s+"
+           :main :expr*} 
     :expr #{:symbol ["(" :expr* ")"]}
     :symbol #"\w+"))   
+
+(def clojure-parser 
+  (parser {:space #{#"[\s,]+" :comment}
+           :main :expr*} 
+    :expr #{:list :vector :map :set :fn 
+            :meta :with-meta :quote :syntax-quote :unquote :unquote-splice
+            :regex :string :number :keyword :symbol :nil :boolean :char}
+
+    :comment #{#"(;|#!)[^\n]*(?=\n)"
+               ["#_" :expr]}
+
+    :list ["(" :expr* ")"] 
+    :vector ["[" :expr* "]"] 
+    :map ["{" [:expr :expr]* "}"]
+    :set ["#{" :expr* "}"]
+    :fn ["#(" :expr* ")"]
+
+    :meta ["^" :expr]
+    :with-meta ["#^" :expr :expr]
+    :quote ["'" :expr] 
+    :syntax-quote ["`" :expr]
+    :unquote ["~" :expr] 
+    :unquote-splice ["~@" :expr]
+
+    :nil "nil"
+    :boolean #{"true" "false"}
+    ;; todo: refine these terminals
+    :char #"\\."
+    :symbol #"\w+"
+    :keyword #":\w+"
+    :number #"\d+"
+    :string #"\"[^\"]*\""
+    :regex #"#\"[^\"]*\""))
 
 ;; helper functions to display results in a more readable way 
 (defn terse-result [[items _]]
