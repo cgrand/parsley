@@ -84,16 +84,16 @@
   (mapcat (partial interpreter-step1 f rules (or s "") eof) states))
 
 ;;;; helpers
-(defn- start-span [class] 
+(defn start-span [class] 
   (let [events [[:start-span class]]]
     (fn [s _] [[events s nil]])))  
 
-(defn- end-span [class] 
+(defn end-span [class] 
   (let [events [[:end-span class]]]
     (fn [s _] [[events s nil]])))  
 
-(defn- zero-or-more [parser]
-  (fn self [s _] [[nil s nil] [nil s [parser self]]])) 
+(defn zero-or-more [op]
+  (fn self [s _] [[nil s nil] [nil s [op self]]])) 
 
 
 
@@ -170,7 +170,7 @@
 
 (defmulti #^{:private true} compile-spec type)
 
-(defn- cat [& args]
+(defn cat [& args]
   (vec (mapcat #(if (or (nil? %) (vector? %)) % [%]) args))) 
 
 ;; a run
