@@ -135,10 +135,13 @@
 
 
 
-(defmulti #^{:private true} compile-spec type)
-
 (defn cat [& args]
   (vec (mapcat #(if (or (nil? %) (vector? %)) % [%]) args))) 
+
+(defn interposed-cat [sep & args]
+  (if sep
+    (vec (interpose sep (remove #{sep} (apply cat args))))
+    (apply cat args)))
 
 (defn regex [#^java.util.regex.Pattern pattern]
   (fn [#^String s eof]
@@ -162,34 +165,41 @@
         (.startsWith s word)
           word))))
 
+(defmulti #^{:private true} compile-spec (fn [_ x] (type x)))
+
+(defn- compile-repeat [space compiled-op]
+  (if space
+    #{(cat compiled-op (zero-or-more (cat space compiled-op))) nil}
+    (zero-or-more compiled-op)))
+
 ;; a run
-(defmethod compile-spec clojure.lang.IPersistentVector [v]
-  (apply cat 
+(defmethod compile-spec clojure.lang.IPersistentVector [space v]
+  (apply interposed-cat space 
     (reduce (fn [v x]
       (cond
-        (= '* x) (conj (pop v) (zero-or-more (peek v)))
-        (= '+ x) (conj v (zero-or-more (peek v)))
+        (= '* x) (conj (pop v) (compile-repeat space (peek v)))
+        (= '+ x) (conj v (compile-repeat space (peek v)))
         (= '? x) (conj (pop v) #{(peek v) nil})
-        :else (conj v x))) [] (map compile-spec v))))
+        :else (conj v x))) [] (map (partial compile-spec space) v))))
 
 ;; an alternative
-(defmethod compile-spec clojure.lang.IPersistentSet [s]
-  (set (map compile-spec s)))
+(defmethod compile-spec clojure.lang.IPersistentSet [space s]
+  (set (map (partial compile-spec space) s)))
 
 ;; a regex
-(defmethod compile-spec java.util.regex.Pattern [pattern]
+(defmethod compile-spec java.util.regex.Pattern [_ pattern]
   (regex pattern))
 
 ;; a terminal
-(defmethod compile-spec String [word]
+(defmethod compile-spec String [_ word]
   (terminal word))
 
 ;; else
-(defmethod compile-spec :default [x]
+(defmethod compile-spec :default [_ x]
   x)
 
-(defn- compile-rule [[name rhs]]
-  `[~name (cat (start-span ~name) ~(compile-spec rhs) (end-span ~name))]) 
+(defn- compile-rule [space [name rhs]]
+  `[~name (cat (start-span ~name) ~(compile-spec space rhs) (end-span ~name))]) 
       
 (defn span [class contents]
   (if (string? contents)
@@ -239,19 +249,22 @@
                         :reducer `default-reducer 
                         :stitch `default-stitch}
           options (into default-opts options)
-          {:keys [main seed reducer stitch]} options
-          rules (into {} (map compile-rule (partition 2 rules)))
+          {:keys [main seed reducer stitch space]} options
+          rules (into (if space 
+                        {::intersticial-space (compile-spec nil [space '?])} 
+                        {}) 
+                  (map (partial compile-rule (when space ::intersticial-space)) 
+                    (partition 2 rules)))
           main (or main (if (= 1 (count rules)) (key (first rules)) :main))] 
       `(parser* ~rules ~main ~seed ~reducer ~stitch))))
 
 (comment
 ;;;;;;;;;; EXAMPLE USAGE
 (def simple-lisp 
-  (parser 
-    :main [[:w ? :expr]* :w ?]
-    :expr #{:symbol ["("[:w ? :expr]* :w ? ")"]}
-    :symbol #"\w+"
-    :w #"\s+"))   
+  (parser {:space #"\s+"} 
+    :main [:expr *]
+    :expr #{:symbol ["(" :expr * ")"]}
+    :symbol #"\w+"))   
 
 ;; helper functions to display results in a more readable way 
 (defn terse-result [[items _]]
