@@ -254,15 +254,18 @@
 (defmacro parser [options & rules ]
   (if (keyword? options)
     `(parser nil ~options ~@rules) 
-    (let [default-opts {:seed `default-seed
+    (let [; options
+          default-opts {:seed `default-seed
                         :reducer `default-reducer 
                         :stitch `default-stitch}
           options (into default-opts options)
           {:keys [main seed reducer stitch space]} options
+          
           rules (into (if space 
                         {::intersticial-space (compile-spec nil [space '?])} 
                         {}) 
                   (map (partial compile-rule (when space ::intersticial-space)) 
                     (partition 2 rules)))
-          main (or main (if (= 1 (count rules)) (key (first rules)) :main))] 
+          main (or main (if (= 1 (count rules)) (key (first rules)) :main))
+          main (if space [::intersticial-space main ::intersticial-space] main)] 
       `(parser* ~rules ~main ~seed ~reducer ~stitch))))
