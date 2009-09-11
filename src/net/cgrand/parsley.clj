@@ -11,6 +11,20 @@
 ;;   and the parser's seed must be its zero (identity element)
 ;;   furthermore (stitch x (reduce reducer y events)) must be equal to
 ;;   (reduce (stitch x y) events) 
+
+;;;; helpers
+(defn- buffer [s op]
+  #^{:type ::buffer} {:buffer s :op op})
+
+(defn start-span [class]
+  #^{:type ::events} {:events [[:start-span class]]})
+
+(defn end-span [class]
+  #^{:type ::events} {:events [[:end-span class]]})
+
+(defn zero-or-more [op]
+  #^{:type ::zero-or-more} {:zero-or-more op})
+
  
 ;;;;;;;;;;;;;; ops interpreter
 ;;;; op interpreter fn
@@ -28,40 +42,29 @@
 (defmethod interpret-op clojure.lang.IPersistentVector [_ ops s _]
   [[nil s ops]])
 
-;; terminal
-(defmethod interpret-op String [_ #^String terminal #^String s eof]
-  (let [n (count terminal)]
-    (cond 
-      (< (count s) n)
-        (when-not eof
-          [[nil nil [{:buffer s :op terminal}]]])
-      (.startsWith s terminal)
-        [[[terminal] (subs s (count terminal)) nil]])))
+;; buffer
+(defmethod interpret-op ::buffer [_ {:keys [buffer op]} s _]
+  [[nil (str buffer s) [op]]])
+  
+;; start-span & end-span
+(defmethod interpret-op ::events [_ {:keys [events]} s _]
+  [[events s nil]])
 
-;; regex
-(defmethod interpret-op java.util.regex.Pattern 
- [_ #^java.util.regex.Pattern pattern #^String s eof]
-  (let [matcher (.matcher pattern s)
-        found (.lookingAt matcher)]
-    (cond
-      (.hitEnd matcher)
-        (if (and eof found)
-          [[[(.group matcher)] (subs s (.end matcher)) nil]]
-          [[nil nil [{:buffer s :op pattern}]]])
-      found 
-        [[[(.group matcher)] (subs s (.end matcher)) nil]])))
-    
+(defmethod interpret-op ::zero-or-more [_ {op :zero-or-more :as self} s _]
+  [[nil s nil] [nil s [op self]]])
+
 ;; pass
 (defmethod interpret-op nil [_ _ s _]
   [[nil s nil]])
 
-;; buffer
-(defmethod interpret-op clojure.lang.IPersistentMap [_ {:keys [buffer op]} s _]
-  [[nil (str buffer s) [op]]])
-
 ;; fn
 (defmethod interpret-op clojure.lang.Fn [_ f s eof]
-  (f s eof))
+  (let [result (f s eof)]
+    (cond
+      (string? result)
+        [[[result] (subs s (count result)) nil]] 
+      (= :need-more-input result)
+        [[nil nil [(buffer s f)]]])))
 
 ;;;; interpreter "loop" for 1 state
 (defn- interpreter-step1 [f rules s eof [_ acc ops]]
@@ -82,18 +85,6 @@
 ;; interpreter "loop" for "simultaneous" states
 (defn- interpreter-step [f rules states s eof]
   (mapcat (partial interpreter-step1 f rules (or s "") eof) states))
-
-;;;; helpers
-(defn start-span [class] 
-  (let [events [[:start-span class]]]
-    (fn [s _] [[events s nil]])))  
-
-(defn end-span [class] 
-  (let [events [[:end-span class]]]
-    (fn [s _] [[events s nil]])))  
-
-(defn zero-or-more [op]
-  (fn self [s _] [[nil s nil] [nil s [op self]]])) 
 
 
 ;; reducer: partial-result * event -> partial-result
@@ -149,6 +140,28 @@
 (defn cat [& args]
   (vec (mapcat #(if (or (nil? %) (vector? %)) % [%]) args))) 
 
+(defn regex [#^java.util.regex.Pattern pattern]
+  (fn [#^String s eof]
+    (let [matcher (.matcher pattern s)
+          found (.lookingAt matcher)]
+      (cond
+        (.hitEnd matcher)
+          (cond
+            (not eof) :need-more-input
+            found (.group matcher))
+        found 
+          (.group matcher)))))
+
+(defn terminal [#^String word]
+  (let [n (count word)]
+    (fn self [#^String s eof]
+      (cond 
+        (< (count s) n)
+          (when (and (not eof) (.startsWith word s))
+              :need-more-input)
+        (.startsWith s word)
+          word))))
+
 ;; a run
 (defmethod compile-spec clojure.lang.IPersistentVector [v]
   (apply cat 
@@ -162,6 +175,14 @@
 ;; an alternative
 (defmethod compile-spec clojure.lang.IPersistentSet [s]
   (set (map compile-spec s)))
+
+;; a regex
+(defmethod compile-spec java.util.regex.Pattern [pattern]
+  (regex pattern))
+
+;; a terminal
+(defmethod compile-spec String [word]
+  (terminal word))
 
 ;; else
 (defmethod compile-spec :default [x]
