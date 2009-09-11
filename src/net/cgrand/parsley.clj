@@ -261,11 +261,14 @@
           options (into default-opts options)
           {:keys [main seed reducer stitch space]} options
           
-          rules (into (if space 
-                        {::intersticial-space (compile-spec nil [space '?])} 
-                        {}) 
-                  (map (partial compile-rule (when space ::intersticial-space)) 
+          base-rules (if space 
+                       {::intersticial-space (compile-spec nil [space '?])} 
+                       {})
+          space (when space ::intersticial-space)
+          rules (into base-rules 
+                  (map (partial compile-rule space) 
                     (partition 2 rules)))
           main (or main (if (= 1 (count rules)) (key (first rules)) :main))
-          main (if space [::intersticial-space main ::intersticial-space] main)] 
+          main (compile-spec space main)
+          main (if space [space main space] main)] 
       `(parser* ~rules ~main ~seed ~reducer ~stitch))))
