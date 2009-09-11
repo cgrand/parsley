@@ -1,6 +1,6 @@
 (ns net.cgrand.parsley.demo
   (:use [net.cgrand.parsley
-     :only [parser step reset stitch results stitchable?]] :reload))
+     :only [parser step reset stitch results stitchable? eof]] :reload))
      
 (def simple-lisp 
   (parser {:space #"\s+"
@@ -53,21 +53,21 @@
     (prn (terse-result result))))
     
 ;; let's parse this snippet
-(-> simple-lisp (step "()(hello)") results prn-terse)
+(-> simple-lisp (step "()(hello)") eof results prn-terse)
 ;;> ((:main (:expr "()") (:expr "(" (:expr (:symbol "hello")) ")")))
 
 ;; let's parse this snippet in two steps
-(-> simple-lisp (step "()(hel") (step "lo)") results prn-terse)
+(-> simple-lisp (step "()(hel") (step "lo)") eof results prn-terse)
 ;;> ((:main (:expr "()") (:expr "(" (:expr (:symbol "hello")) ")")))
 
 ;; and now, the incremental parsing!
 (let [c1 (-> simple-lisp reset (step "()(hel"))
       c2 (-> c1 reset (step "lo)" nil))
-      _ (-> (stitch c1 c2) results prn-terse) ; business as usual
+      _ (-> (stitch c1 c2) eof results prn-terse) ; business as usual
       c1b (-> simple-lisp reset (step "(bonjour)(hel")) ; an updated 1st chunk
-      _ (-> (stitch c1b c2) results prn-terse) 
+      _ (-> (stitch c1b c2) eof results prn-terse) 
       c1t (-> simple-lisp reset (step "(bonjour hel")) ; an updated 1st chunk
-      _ (-> (stitch c1t c2) results prn-terse)] 
+      _ (-> (stitch c1t c2) eof results prn-terse)] 
   nil)
 ;;> ((:main (:expr "()") (:expr "(" (:expr (:symbol "hello")) ")")))
 ;;> ((:main (:expr "(" (:expr (:symbol "bonjour")) ")") (:expr "(" (:expr (:symbol "hello")) ")")))
