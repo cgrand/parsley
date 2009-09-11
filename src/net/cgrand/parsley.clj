@@ -96,30 +96,6 @@
   (fn self [s _] [[nil s nil] [nil s [op self]]])) 
 
 
-
-
-(comment
-(defgrammar
- [list ["(" expr * ")"]
-  vector ["[" expr * "]"]
-  map ["{" [expr expr]* "}"]
-  set ["#{" expr * "}"]
-  fun ["#(" expr * ")"]
-  expr #{list vector map set fun}]
- ; :whitespace XXX
- :main expr)
- 
- ;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(def g (grammar [expr #{"-" ["(" expr * ")"]}] :main expr))
-
-(def a (grammar
-         {sum #{:prod [:prod "+" :sum]}
-          prod #{:num [:num "*" :prod]}
-          num #{"1" "0" ["(" :sum ")"]}}
-         :main sum))
- )
-
 ;; reducer: partial-result * event -> partial-result
 ;; seed: partial-result
 ;; stitch: partial-result * partial-result -> partial-result
