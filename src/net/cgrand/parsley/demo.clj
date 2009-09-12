@@ -30,6 +30,8 @@
     :syntax-quote ["`" :expr]
     :unquote ["~" :expr] 
     :unquote-splice ["~@" :expr]
+    :deref ["@" :expr]
+    :var ["#'" :expr]
 
     :nil "nil"
     :boolean #{"true" "false"}
