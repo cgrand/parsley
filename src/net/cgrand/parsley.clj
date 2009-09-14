@@ -95,7 +95,7 @@
  (with-meta [[nil seed [main]]] 
     {::rules rules 
      ::seed seed 
-     ::reducer reducer 
+     ::reducer #(if (= "" %2) %1 (reducer %1 %2)) 
      ::stitch stitch})) 
 
 (defn step 
