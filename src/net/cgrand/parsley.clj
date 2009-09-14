@@ -138,13 +138,21 @@
 
 
 
-(defn cat [& args]
-  (vec (mapcat #(if (or (nil? %) (vector? %)) % [%]) args))) 
+(defmacro interposed-cat [sep & args]
+  (let [cat? #(and (seq? %) (= `cat (first %)))
+        xs (remove #(or (cat? %) (= sep %) (nil? %))
+             (mapcat #(tree-seq cat? next %) args))]
+    (if (next xs)
+      `(cat ~@xs)
+      (first xs))))
 
-(defn interposed-cat [sep & args]
-  (if sep
-    (vec (interpose sep (remove #{sep} (apply cat args))))
-    (apply cat args)))
+(defn cat [& args] 
+  (vec args)) 
+
+(defn alt [& args] 
+  (set args))
+
+
 
 (defn regex [#^java.util.regex.Pattern pattern]
   (fn [#^String s eof]
@@ -172,31 +180,36 @@
 
 (defn- compile-repeat [space compiled-op]
   (if space
-    #{(cat compiled-op (zero-or-more (cat space compiled-op))) nil}
-    (zero-or-more compiled-op)))
+    `(alt
+       (cat ~compiled-op (zero-or-more (cat ~space ~compiled-op))) 
+       nil)
+    `(zero-or-more ~compiled-op)))
+
+(defmacro token [& args]
+  `(cat ~@(map #(compile-spec nil %) args))) 
 
 ;; a run
 (defmethod compile-spec clojure.lang.IPersistentVector [space v]
-  (apply interposed-cat space 
-    (reduce (fn [v x]
-              (condp = x
-                '* (conj (pop v) (compile-repeat space (peek v)))
-                '+ (conj v (compile-repeat space (peek v)))
-                '? (conj (pop v) #{(peek v) nil})
-                (conj v x))) 
-      [] (map (partial compile-spec space) v))))
+ `(interposed-cat ~space 
+    ~@(reduce (fn [v x]
+                (condp = x
+                  '* (conj (pop v) (compile-repeat space (peek v)))
+                  '+ (conj v (compile-repeat space (peek v)))
+                  '? (conj (pop v) `(alt ~(peek v) nil))
+                  (conj v x))) 
+        [] (map (partial compile-spec space) v))))
 
 ;; an alternative
 (defmethod compile-spec clojure.lang.IPersistentSet [space s]
-  (set (map (partial compile-spec space) s)))
+  `(alt ~@(map (partial compile-spec space) s)))
 
 ;; a regex
 (defmethod compile-spec java.util.regex.Pattern [_ pattern]
-  (regex pattern))
+  `(regex ~pattern))
 
 ;; a terminal
 (defmethod compile-spec String [_ word]
-  (terminal word))
+  `(terminal ~word))
 
 ;; a ref to another rule
 (defmethod compile-spec clojure.lang.Keyword [space kw]
@@ -273,5 +286,5 @@
                     (partition 2 rules)))
           main (or main (if (= 1 (count rules)) (key (first rules)) :main))
           main (compile-spec space main)
-          main (if space [space main space] main)] 
+          main (if space `(cat ~space ~main ~space) main)] 
       `(parser* ~rules ~main ~seed ~reducer ~stitch))))
