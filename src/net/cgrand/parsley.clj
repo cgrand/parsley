@@ -16,16 +16,6 @@
 (defn- buffer [s op]
   #^{:type ::buffer} {:buffer s :op op})
 
-(defn start-span [class]
-  #^{:type ::events} {:events [[:start-span class]]})
-
-(defn end-span [class]
-  #^{:type ::events} {:events [[:end-span class]]})
-
-(defn zero-or-more [op]
-  #^{:type ::zero-or-more} {:zero-or-more op})
-
- 
 ;;;;;;;;;;;;;; ops interpreter
 ;;;; op interpreter fn
 (defmulti #^{:private true} interpret-op (fn [_ op _ _] (type op)))
@@ -74,7 +64,7 @@
                   (mapcat (fn [[events s ops]]
                             (let [acc (reduce f acc events)
                                   ops (concat ops next-ops)]
-                                (if s
+                                (if s 
                                   (step1 s acc ops)  
                                   [[k acc ops]])))
                     (interpret-op rules op s eof))
@@ -91,8 +81,8 @@
 ;; seed: partial-result
 ;; stitch: partial-result * partial-result -> partial-result
 ;; partial-result, seed and stitch must define a monoid
-(defn parser* [rules main seed reducer stitch]
- (with-meta [[nil seed [main]]] 
+(defn parser* [rules seed reducer stitch]
+ (with-meta [[nil seed [::main]]] 
     {::rules rules 
      ::seed seed 
      ::reducer #(if (= "" %2) %1 (reducer %1 %2)) 
@@ -136,25 +126,35 @@
 (defn results [states]
   (for [[_ result ops] states :when (empty? ops)] result)) 
 
+;; the grammar core language:
+;; alt(ernative), cat(enate), zero-or-more, token, string, start-span, 
+;; end-span or keyword
+(defmulti compile-to-ops first)
 
+(defmethod compile-to-ops ::alt [[_ & forms]]
+  (set (map compile-to-ops forms)))
 
-(defmacro interposed-cat [sep & args]
-  (let [cat? #(and (seq? %) (= `cat (first %)))
-        xs (remove #(or (cat? %) (= sep %) (nil? %))
-             (mapcat #(tree-seq cat? next %) args))]
-    (if (next xs)
-      `(cat ~@xs)
-      (first xs))))
+(defmethod compile-to-ops ::token [[_ & forms]]
+  (vec (map compile-to-ops forms)))
 
-(defn cat [& args] 
-  (vec args)) 
+(defmethod compile-to-ops ::cat [[_ & forms]]
+  (vec (map compile-to-ops forms)))
 
-(defn alt [& args] 
-  (set args))
+(defmethod compile-to-ops ::zero-or-more [[_ form]]
+  (let [op (compile-to-ops form)]
+    #^{:type ::zero-or-more} {:zero-or-more op}))
 
+(defmethod compile-to-ops ::string [[_ word]]
+  (let [n (count word)]
+    (fn self [#^String s eof]
+      (cond 
+        (< (count s) n)
+          (when (and (not eof) (.startsWith word s))
+              :need-more-input)
+        (.startsWith s word)
+          word))))
 
-
-(defn regex [#^java.util.regex.Pattern pattern]
+(defmethod compile-to-ops ::regex [[_ #^java.util.regex.Pattern pattern]]
   (fn [#^String s eof]
     (let [matcher (.matcher pattern s)
           found (.lookingAt matcher)]
@@ -166,65 +166,114 @@
         found 
           (.group matcher)))))
 
-(defn terminal [#^String word]
-  (let [n (count word)]
-    (fn self [#^String s eof]
-      (cond 
-        (< (count s) n)
-          (when (and (not eof) (.startsWith word s))
-              :need-more-input)
-        (.startsWith s word)
-          word))))
+(defn- simple-class [class]
+  (let [ns (namespace class)
+        name (name class)]
+    (keyword ns (subs name (-> name (.lastIndexOf ".") inc)))))
+  
+(defmethod compile-to-ops ::start-span [[_ class]]
+  #^{:type ::events} {:events [[:start-span (simple-class class)]]})
 
-(defmulti #^{:private true} compile-spec (fn [_ x] (type x)))
+(defmethod compile-to-ops ::end-span [[_ class]]
+  #^{:type ::events} {:events [[:end-span (simple-class class)]]})
 
-(defn- compile-repeat [space compiled-op]
-  (if space
-    `(alt
-       (cat ~compiled-op (zero-or-more (cat ~space ~compiled-op))) 
-       nil)
-    `(zero-or-more ~compiled-op)))
+(defmethod compile-to-ops ::rule [[_ kw]]
+  kw)
 
-(defmacro token [& args]
-  `(cat ~@(map #(compile-spec nil %) args))) 
+(defmethod compile-to-ops ::pass [_]
+  nil)
+
+
+#_(defn form-zip
+ "Returns a zipper for nested list forms, given a root form"
+ [root]
+  (z/zipper #(and (seq? %) (seq %)) rest
+    (fn [node children] (with-meta (cons (first node) children) (meta node)))
+    root))
+
+;; compile-spec turns a sugar-heavy grammar in a bunch of nested lists  
+(defmulti #^{:private true} compile-spec #(if (seq? %) (first %) (type %)))
+
+(defmethod compile-spec 'token [[_ & args]]
+  (cons ::token (rest (compile-spec (vec args))))) 
 
 ;; a run
-(defmethod compile-spec clojure.lang.IPersistentVector [space v]
- `(interposed-cat ~space 
-    ~@(reduce (fn [v x]
-                (condp = x
-                  '* (conj (pop v) (compile-repeat space (peek v)))
-                  '+ (conj v (compile-repeat space (peek v)))
-                  '? (conj (pop v) `(alt ~(peek v) nil))
-                  (conj v x))) 
-        [] (map (partial compile-spec space) v))))
+(defmethod compile-spec clojure.lang.IPersistentVector [v]
+  (cons ::cat 
+    (reduce (fn [v x]
+              (condp = x
+                '* (conj (pop v) (list ::zero-or-more (peek v)))
+                '+ (conj v (list ::zero-or-more (peek v)))
+                '? (conj (pop v) (list ::alt (peek v) '(::pass)))
+                (conj v (compile-spec x)))) 
+      [] v)))
 
 ;; an alternative
-(defmethod compile-spec clojure.lang.IPersistentSet [space s]
-  `(alt ~@(map (partial compile-spec space) s)))
+(defmethod compile-spec clojure.lang.IPersistentSet [s]
+  (cons ::alt (map compile-spec s)))
 
 ;; a regex
-(defmethod compile-spec java.util.regex.Pattern [_ pattern]
-  `(regex ~pattern))
+(defmethod compile-spec java.util.regex.Pattern [pattern]
+  (list ::regex pattern))
 
 ;; a terminal
-(defmethod compile-spec String [_ word]
-  `(terminal ~word))
+(defmethod compile-spec String [word]
+  (list ::string word))
 
 ;; a ref to another rule
-(defmethod compile-spec clojure.lang.Keyword [space kw]
+(defmethod compile-spec clojure.lang.Keyword [kw]
   (let [n (name kw)]
     (if-let [x (#{\* \? \+} (last n))]
-      (compile-spec space 
+      (compile-spec
         [(keyword (subs n 0 (dec (count n)))) (symbol (str x))])
-      kw)))
+      (list ::rule kw))))
+
+(defmethod compile-spec nil [_]
+  (list ::pass))
 
 ;; else
-(defmethod compile-spec :default [_ x]
+#_(defmethod compile-spec :default [x]
   x)
+  
+;; interspace
+(defmulti #^{:private true} interspace (fn [space form]
+                                         (when (seq? form) (first form))))
 
-(defn- compile-rule [space [name rhs]]
-  `[~name (cat (start-span ~name) ~(compile-spec space rhs) (end-span ~name))]) 
+(defmethod interspace ::cat [space [_ & forms]]
+  `(::cat ~@(interpose space (map (partial interspace space) forms))))
+  
+(defmethod interspace ::token [space form]
+  form)
+  
+(defmethod interspace ::rule [space form]
+  form)
+  
+(defmethod interspace ::zero-or-more [space [_ form]]
+  (let [form (interspace space form)]
+    `(::alt
+        (::pass)
+        (::cat ~form (::zero-or-more (::cat ~space ~form))))))  
+
+(defmethod interspace :default [space x]
+  (if (seq? x)
+    (cons (first x) (map (partial interspace space) (rest x)))
+    x))  
+
+
+  
+(defn- compile-span [class space form]
+  (let [form (compile-spec form)
+        form (if space (interspace space form))
+        form (if class
+               `(::cat (::start-span ~class) ~form (::end-span ~class))
+               form)]
+    (compile-to-ops form)))
+
+(defn- compile-rule [inlines space [name rhs]]
+  `[~name ~(compile-span (when-not (inlines name) name) space rhs)])
+
+
+
       
 (defn span [class contents]
   (if (string? contents)
@@ -273,18 +322,20 @@
     (let [; options
           default-opts {:seed `default-seed
                         :reducer `default-reducer 
-                        :stitch `default-stitch}
+                        :stitch `default-stitch
+                        :main (first rules)}
           options (into default-opts options)
-          {:keys [main seed reducer stitch space]} options
+          {:keys [main seed reducer stitch space inline]} options
+          inlines (into #{::intersticial-space ::alias-main ::main} (:inline options))
           
-          base-rules (if space 
-                       {::intersticial-space (compile-spec nil [space '?])} 
-                       {})
-          space (when space ::intersticial-space)
-          rules (into base-rules 
-                  (map (partial compile-rule space) 
-                    (partition 2 rules)))
-          main (or main (if (= 1 (count rules)) (key (first rules)) :main))
-          main (compile-spec space main)
-          main (if space `(cat ~space ~main ~space) main)] 
-      `(parser* ~rules ~main ~seed ~reducer ~stitch))))
+          base-rules [::intersticial-space 
+                       (when space (list 'token space '?))
+                      ::alias-main 
+                       main
+                      ::main
+                       '(token ::intersticial-space ::alias-main ::intersticial-space)]
+          space (when space '(::rule ::intersticial-space))
+          rules (into {} 
+                  (map (partial compile-rule inlines space) 
+                    (partition 2 (concat base-rules rules))))]
+      `(parser* ~rules ~seed ~reducer ~stitch))))
