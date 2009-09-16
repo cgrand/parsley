@@ -191,34 +191,32 @@
     (fn [node children] (with-meta (cons (first node) children) (meta node)))
     root))
 
-;; compile-spec turns a sugar-heavy grammar in a bunch of nested lists  
-(defmulti #^{:private true} compile-spec #(if (seq? %) (first %) (type %)))
 
-(defmethod compile-spec 'token [[_ & args]]
-  (cons ::token (rest (compile-spec (vec args))))) 
+;; compile-spec turns a sugar-heavy grammar in a bunch of nested vectors  
+(defmulti #^{:private true} compile-spec type)
 
 ;; a run
 (defmethod compile-spec clojure.lang.IPersistentVector [v]
-  (cons ::cat 
+  (into [::cat] 
     (reduce (fn [v x]
               (condp = x
-                '* (conj (pop v) (list ::zero-or-more (peek v)))
-                '+ (conj v (list ::zero-or-more (peek v)))
-                '? (conj (pop v) (list ::alt (peek v) '(::pass)))
+                '* (conj (pop v) [::zero-or-more (peek v)])
+                '+ (conj v [::zero-or-more (peek v)])
+                '? (conj (pop v) [::alt (peek v) [::pass]])
                 (conj v (compile-spec x)))) 
       [] v)))
 
 ;; an alternative
 (defmethod compile-spec clojure.lang.IPersistentSet [s]
-  (cons ::alt (map compile-spec s)))
+  (into [::alt] (map compile-spec s)))
 
 ;; a regex
 (defmethod compile-spec java.util.regex.Pattern [pattern]
-  (list ::regex pattern))
+  [::regex pattern])
 
 ;; a terminal
 (defmethod compile-spec String [word]
-  (list ::string word))
+  [::string word])
 
 ;; a ref to another rule
 (defmethod compile-spec clojure.lang.Keyword [kw]
@@ -226,21 +224,21 @@
     (if-let [x (#{\* \? \+} (last n))]
       (compile-spec
         [(keyword (subs n 0 (dec (count n)))) (symbol (str x))])
-      (list ::rule kw))))
+      [::rule kw])))
 
 (defmethod compile-spec nil [_]
-  (list ::pass))
+  [::pass])
 
 ;; else
-#_(defmethod compile-spec :default [x]
+(defmethod compile-spec :default [x]
   x)
   
 ;; interspace
 (defmulti #^{:private true} interspace (fn [space form]
-                                         (when (seq? form) (first form))))
+                                         (when (vector? form) (first form))))
 
 (defmethod interspace ::cat [space [_ & forms]]
-  `(::cat ~@(interpose space (map (partial interspace space) forms))))
+  (into [::cat] (interpose space (map (partial interspace space) forms))))
   
 (defmethod interspace ::token [space form]
   form)
@@ -250,14 +248,17 @@
   
 (defmethod interspace ::zero-or-more [space [_ form]]
   (let [form (interspace space form)]
-    `(::alt
-        (::pass)
-        (::cat ~form (::zero-or-more (::cat ~space ~form))))))  
+    [::alt
+      [::pass]
+      [::cat form [::zero-or-more [::cat space form]]]]))  
 
 (defmethod interspace :default [space x]
-  (if (seq? x)
-    (cons (first x) (map (partial interspace space) (rest x)))
-    x))  
+  (if (vector? x)
+    (into [(first x)] (map (partial interspace space) (next x)))
+    x))
+
+(defmacro token [& args]
+  [::token (compile-spec (vec args))])
 
 
   
@@ -265,9 +266,9 @@
   (let [form (compile-spec form)
         form (if space (interspace space form))
         form (if class
-               `(::cat (::start-span ~class) ~form (::end-span ~class))
+               [::cat [::start-span class] form [::end-span class]]
                form)]
-    (compile-to-ops form)))
+    `(compile-to-ops ~form)))
 
 (defn- compile-rule [inlines space [name rhs]]
   `[~name ~(compile-span (when-not (inlines name) name) space rhs)])
@@ -329,12 +330,12 @@
           inlines (into #{::intersticial-space ::alias-main ::main} (:inline options))
           
           base-rules [::intersticial-space 
-                       (when space (list 'token space '?))
+                       (when space `(token ~space ~'?))
                       ::alias-main 
                        main
                       ::main
                        '(token ::intersticial-space ::alias-main ::intersticial-space)]
-          space (when space '(::rule ::intersticial-space))
+          space (when space [::rule ::intersticial-space])
           rules (into {} 
                   (map (partial compile-rule inlines space) 
                     (partition 2 (concat base-rules rules))))]
