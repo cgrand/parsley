@@ -132,7 +132,7 @@
 ;; the grammar core language:
 ;; alt(ernative), cat(enate), zero-or-more, token, string, start-span, 
 ;; end-span or keyword
-(defmulti compile-to-ops first)
+(defmulti #^{:private true} compile-to-ops first)
 
 (defmethod compile-to-ops ::alt [[_ & forms]]
   (set (map compile-to-ops forms)))
@@ -186,7 +186,7 @@
 (defmethod compile-to-ops ::pass [_]
   nil)
 
-(defmulti simplify first)
+(defmulti #^{:private true} simplify first)
 
 (defn- collapse [pred forms]
   (let [branch? #(and (vector? %) (pred (first %)))]
