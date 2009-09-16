@@ -82,11 +82,14 @@
 ;; stitch: partial-result * partial-result -> partial-result
 ;; partial-result, seed and stitch must define a monoid
 (defn parser* [rules seed reducer stitch]
- (with-meta [[nil seed [::main]]] 
-    {::rules rules 
-     ::seed seed 
-     ::reducer #(if (= "" %2) %1 (reducer %1 %2)) 
-     ::stitch stitch})) 
+  (let [compiled-rules
+         (reduce (fn [cr [k form]] 
+                   (assoc cr k (-> form simplify compile-to-ops))) {} rules)]
+    (with-meta [[nil seed [::main]]] 
+      {::rules compiled-rules  
+       ::seed seed 
+       ::reducer #(if (= "" %2) %1 (reducer %1 %2)) 
+       ::stitch stitch}))) 
 
 (defn step 
   ([states s] (step states s (not s)))
@@ -183,13 +186,24 @@
 (defmethod compile-to-ops ::pass [_]
   nil)
 
+(defmulti simplify first)
 
-#_(defn form-zip
- "Returns a zipper for nested list forms, given a root form"
- [root]
-  (z/zipper #(and (seq? %) (seq %)) rest
-    (fn [node children] (with-meta (cons (first node) children) (meta node)))
-    root))
+(defn- collapse [pred forms]
+  (let [branch? #(and (vector? %) (pred (first %)))]
+    (remove branch? (mapcat #(tree-seq branch? next %) forms))))
+
+(defmethod simplify ::alt [[_ & forms]]
+   (into [::alt] (map simplify (collapse #{::alt} forms)))) 
+
+(defmethod simplify ::cat [[_ & forms]]
+   (into [::cat] (map simplify (collapse #{::cat} forms)))) 
+
+(defmethod simplify ::token [[_ & forms]]
+   (into [::token] (map simplify (collapse #{::cat ::token} forms)))) 
+
+(defmethod simplify :default [form]
+  form)
+
 
 
 ;; compile-spec turns a sugar-heavy grammar in a bunch of nested vectors  
@@ -268,7 +282,7 @@
         form (if class
                [::cat [::start-span class] form [::end-span class]]
                form)]
-    `(compile-to-ops ~form)))
+    form))
 
 (defn- compile-rule [inlines space [name rhs]]
   `[~name ~(compile-span (when-not (inlines name) name) space rhs)])
