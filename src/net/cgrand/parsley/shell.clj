@@ -10,6 +10,16 @@
  "Low level API"
   (:require [net.cgrand.parsley.core :as core]))
 
+;; reducer: partial-result * event -> partial-result
+;; seed: partial-result
+;; stitch: partial-result * partial-result -> partial-result
+;; partial-result, seed and stitch must define a monoid
+(defn parser [cont seed reducer stitch]
+  (with-meta [[nil seed cont]] 
+    {::seed seed 
+     ::reducer #(if (= "" %2) %1 (reducer %1 %2)) 
+     ::stitch stitch}))
+
 (defn- step* 
  [states s]
   (let [{f ::reducer :as m} (meta states)]
