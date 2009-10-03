@@ -55,12 +55,26 @@
     
     [[op-repeat hello]] "", [[[] [hello [op-repeat hello]]] [[] nil]]  
     [[op-repeat hello]] "h", [[["h"] [[op-string "ello"] [op-repeat hello]]]]  
-    [[op-repeat hello]] "helloh", [[["helloh"] [[op-string "ello"] [op-repeat hello]]]]  
+    [[op-repeat hello]] "helloh", 
+      [[["helloh"] [[op-string "ello"] [op-repeat hello]]]]  
     [[op-repeat hello]] nil, [[[] nil]]
     
     [[op-eof]] "a", nil  
     [[op-eof]] "", [[[] [[op-eof]]]]  
     [[op-eof]] nil, [[[] nil]]  
+
+    [[op-lookahead [[op-string "hallo"]]] hello] "h", 
+      [[["h"] [[op-lookahead [[op-string "allo"]]] [op-string "ello"]]]] 
+    [[op-lookahead [[op-string "hallo"]]] hello] "ha", nil 
+    [[op-lookahead [[op-string "hallo"]]] hello] "he", nil 
+    [[op-lookahead [[op-string "hel"]]] hello] "hel", 
+      [[["hel"] [[op-string "lo"]]]] 
+
+    [[op-negative-lookahead [[op-string "hallo"]]] hello] "h", 
+      [[["h"] [[op-negative-lookahead [[op-string "allo"]]] [op-string "ello"]]]] 
+    [[op-negative-lookahead [[op-string "hallo"]]] hello] "ha", nil 
+    [[op-negative-lookahead [[op-string "hallo"]]] hello] "he", 
+      [[["he"] [[op-string "llo"]]]]
   ))
         
 (comment

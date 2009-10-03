@@ -74,22 +74,24 @@
 
 (def op-lookahead 
   (op [ops] [s cont]
-    (for [[_ n next-ops] (run-ops s ops)]
-      (if (seq next-ops)
-        (for [[events m next-cont] (interpret-ops (consume n s) cont)
-              :when (nil? m)]
-          [events n (cons [op-lookahead next-ops] next-cont)])
-        [[nil 0 cont]]))))
+    (mapcat 
+      (fn [[_ n next-ops]]
+        (if (seq next-ops)
+          (for [[events m next-cont] (interpret-ops (consume n s) cont)
+                :when (nil? m)]
+            [events n (cons [op-lookahead next-ops] next-cont)])
+          [[nil 0 cont]])) (run-ops s ops))))
   
 (def op-negative-lookahead
   (op [ops] [s cont]
     (if-let [r (seq (run-ops s ops))]
-      (for [[_ n next-ops] r]
-        (when (seq next-ops)
-          (for [[events m next-cont] (interpret-ops (consume n s) cont)
-                :when (nil? m)]
-            [events n (cons [op-negative-lookahead next-ops] next-cont)])))
-      [[nil 0 cont]])))      
+      (mapcat 
+        (fn [[_ n next-ops]]
+          (when (seq next-ops)
+            (for [[events m next-cont] (interpret-ops (consume n s) cont)
+                  :when (nil? m)]
+              [events n (cons [op-negative-lookahead next-ops] next-cont)]))) r)
+      [[nil 0 cont]])))
   
 ;; string
 (def op-string 
