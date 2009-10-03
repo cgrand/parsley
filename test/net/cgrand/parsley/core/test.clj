@@ -9,11 +9,42 @@
 (ns net.cgrand.parsley.core.test
   (:use net.cgrand.parsley.core :reload)
   (:use [clojure.test :only [deftest is are]]))
-  
-(deftest misc
-  (is (= [[["hello"] nil]] 
-        (map next (interpreter-step1 conj "hello" [nil [] [[op-string "hello"]]])))))
+
+(def hello [op-string "hello"])
+(def world [op-string "world"])
+
+(defn append [val event]
+  (cond 
+    (= "" event) 
+      val
+    (and (string? event) (string? (peek val)))
+      (conj (pop val) (str (peek val) event))
+    :else
+      (conj val event)))
+
+(deftest test-ops
+  (are [cont s results] 
+    (= (map (partial cons nil) results) 
+      (interpreter-step1 append s [nil [] cont]))
+  [hello] "hello", [[["hello"] nil]]
+  [hello] "hel", [[["hel"] [[op-string "lo"]]]]
+  [hello] "", [[[] [hello]]]
+  [hello] "helo", nil
+  [hello] nil, nil
+  [[op-string ""]] nil, nil
+
+  [[op-cat hello world]] "hello", [[["hello"] [world]]] 
+  [[op-cat hello world]] "", [[[] [hello world]]] 
+  [[op-cat hello world]] nil, nil 
+
+  [[op-alt hello world]] "hello", [[["hello"] nil]] 
+  [[op-alt hello world]] "world", [[["world"] nil]] 
+  [[op-alt hello world]] "w", [[["w"] [[op-string "orld"]]]] 
+  [[op-alt hello world]] "", [[[] [hello]] [[] [world]]] 
+  [[op-alt hello world]] nil, nil 
+  ))
         
+(comment
 (def simple-lisp 
   (letfn [(expr [s eof cont]
             [[nil 0 (cons [op-alt [sym]
@@ -27,4 +58,5 @@
     
 (interpreter-step conj [[nil [] [simple-lisp]]] "x" false)
 (interpreter-step conj [[nil [] [simple-lisp]]] "((" false)
-(interpreter-step conj [[nil [] [simple-lisp]]] "((x)x(x))" false)         
+(interpreter-step conj [[nil [] [simple-lisp]]] "((x)x(x))" false)
+)
