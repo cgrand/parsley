@@ -22,26 +22,41 @@
     :else
       (conj val event)))
 
+(defn- eq [expected results]
+  (= (set (map (partial cons nil) expected)) 
+    (set results)))
+
 (deftest test-ops
   (are [cont s results] 
-    (= (map (partial cons nil) results) 
+    (eq results 
       (interpreter-step1 append s [nil [] cont]))
-  [hello] "hello", [[["hello"] nil]]
-  [hello] "hel", [[["hel"] [[op-string "lo"]]]]
-  [hello] "", [[[] [hello]]]
-  [hello] "helo", nil
-  [hello] nil, nil
-  [[op-string ""]] nil, nil
-
-  [[op-cat hello world]] "hello", [[["hello"] [world]]] 
-  [[op-cat hello world]] "", [[[] [hello world]]] 
-  [[op-cat hello world]] nil, nil 
-
-  [[op-alt hello world]] "hello", [[["hello"] nil]] 
-  [[op-alt hello world]] "world", [[["world"] nil]] 
-  [[op-alt hello world]] "w", [[["w"] [[op-string "orld"]]]] 
-  [[op-alt hello world]] "", [[[] [hello]] [[] [world]]] 
-  [[op-alt hello world]] nil, nil 
+    [hello] "hello", [[["hello"] nil]]
+    [hello] "hel", [[["hel"] [[op-string "lo"]]]]
+    [hello] "", [[[] [hello]]]
+    [hello] "helo", nil
+    [hello] nil, nil
+    [[op-string ""]] nil, nil
+  
+    [[op-cat hello world]] "hello", [[["hello"] [world]]] 
+    [[op-cat hello world]] "", [[[] [hello world]]] 
+    [[op-cat hello world]] nil, nil 
+  
+    [[op-alt hello world]] "hello", [[["hello"] nil]] 
+    [[op-alt hello world]] "world", [[["world"] nil]] 
+    [[op-alt hello world]] "w", [[["w"] [[op-string "orld"]]]] 
+    [[op-alt hello world]] "", [[[] [hello]] [[] [world]]] 
+    [[op-alt hello world]] nil, nil 
+  
+    [[op-alt hello world]] "hello", [[["hello"] nil]] 
+    [[op-alt hello world]] "world", [[["world"] nil]] 
+    [[op-alt hello world]] "w", [[["w"] [[op-string "orld"]]]] 
+    [[op-alt hello world]] "", [[[] [hello]] [[] [world]]] 
+    [[op-alt hello world]] nil, nil
+    
+    [[op-repeat hello]] "", [[[] [hello [op-repeat hello]]] [[] nil]]  
+    [[op-repeat hello]] "h", [[["h"] [[op-string "ello"] [op-repeat hello]]]]  
+    [[op-repeat hello]] "helloh", [[["helloh"] [[op-string "ello"] [op-repeat hello]]]]  
+    [[op-repeat hello]] nil, [[[] nil]]  
   ))
         
 (comment
