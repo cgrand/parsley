@@ -103,6 +103,9 @@
 
 (def op-eof 
   (op [] [s cont] 
-    (when-not s
-      [[nil nil cont]])))
+    (cond
+      (nil? s)
+        [[nil nil cont]]
+      (= "" s)
+        [[nil nil (cons [op-eof] cont)]])))
     

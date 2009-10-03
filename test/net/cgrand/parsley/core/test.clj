@@ -56,7 +56,11 @@
     [[op-repeat hello]] "", [[[] [hello [op-repeat hello]]] [[] nil]]  
     [[op-repeat hello]] "h", [[["h"] [[op-string "ello"] [op-repeat hello]]]]  
     [[op-repeat hello]] "helloh", [[["helloh"] [[op-string "ello"] [op-repeat hello]]]]  
-    [[op-repeat hello]] nil, [[[] nil]]  
+    [[op-repeat hello]] nil, [[[] nil]]
+    
+    [[op-eof]] "a", nil  
+    [[op-eof]] "", [[[] [[op-eof]]]]  
+    [[op-eof]] nil, [[[] nil]]  
   ))
         
 (comment
