@@ -75,6 +75,9 @@
     [[op-negative-lookahead [[op-string "hallo"]]] hello] "ha", nil 
     [[op-negative-lookahead [[op-string "hallo"]]] hello] "he", 
       [[["he"] [[op-string "llo"]]]]
+
+    [[op-events [:foo]]] "", [[[:foo] nil]]
+    [[op-events [:foo]]] nil, [[[:foo] nil]]  
   ))
         
 (comment
