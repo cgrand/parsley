@@ -29,9 +29,9 @@
                   (mapcat (fn [[events n cont]]
                             (let [acc (f acc events)]
                               (cond
+                                (not s) (step1 nil acc cont) ; EOF
                                 n (step1 (subs s n) acc cont)
-                                s [[acc nil cont]]
-                                :eof (step1 nil acc cont))))  
+                                :else [[acc nil cont]])))  
                     (interpret-op op s cont))
                   [[acc (when (seq s) (- l (count s))) nil]]))]                      
     (step1 s init ops)))
