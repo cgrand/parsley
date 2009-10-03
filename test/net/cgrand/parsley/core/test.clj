@@ -12,7 +12,7 @@
   
 (deftest misc
   (is (= [[["hello"] nil]] 
-        (map next (interpreter-step1 conj "hello" false [nil [] [[op-string "hello"]]])))))
+        (map next (interpreter-step1 conj "hello" [nil [] [[op-string "hello"]]])))))
         
 (def simple-lisp 
   (letfn [(expr [s eof cont]

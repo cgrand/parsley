@@ -6,31 +6,33 @@
 ;   the terms of this license.
 ;   You must not remove this notice, or any other, from this software.
 
-(ns net.cgrand.parsley.core)
+(ns net.cgrand.parsley.core
+ "Core interpreter and basic ops -- private, not part of the public API.")
 
-;;;;;;;;;;;;;; ops interpreter
-;; core ops: ::rule ::alt ::cat ::events ::repeat ::string 
-;;           ::lookahead :: negative-lookahead ::eof 
 ;; an op is a coll [fn & args]
 
-(defmacro defop [name args context & body]
-  `(defn ~name [~@context ~@args] ~@body))
+(defmacro op [args context & body]
+  `(fn [~@context ~@args] ~@body))
+
+(defmacro flow-op [args context & body]
+  `(op ~args [_# ~@context] ~@body))
 
 ;;;; op interpreter fn
-(defn interpret-op [[f & args] s eof cont]
-  (apply f s eof cont args))
+(defn interpret-op [[f & args] s cont]
+  (apply f s cont args))
 
 ;;;; interpreter "loop" for 1 state
-(defn interpret-ops* [f init s eof ops]
+(defn interpret-ops* [f init s ops]
   (let [l (count s)
         step1 (fn step1 [s acc ops]
                 (if-let [[op & cont] (seq ops)]
                   (mapcat (fn [[events n cont]]
                             (let [acc (f acc events)]
-                              (if n 
-                                (step1 (subs s n) acc cont)
-                                [[acc nil cont]])))  
-                    (interpret-op op s eof cont))
+                              (cond
+                                n (step1 (subs s n) acc cont)
+                                s [[acc nil cont]]
+                                :eof (step1 nil acc cont))))  
+                    (interpret-op op s cont))
                   [[acc (when (seq s) (- l (count s))) nil]]))]                      
     (step1 s init ops)))
 
@@ -38,67 +40,69 @@
 
 (def run-ops (partial interpret-ops* (constantly nil) nil)) 
 
-(defn interpreter-step1 [f s eof [_ acc ops]]
-  (for [[acc n cont] (interpret-ops* #(reduce f %1 %2) acc s eof ops)
+(defn interpreter-step1 [f s [k acc ops]]
+  (for [[acc n cont] (interpret-ops* #(reduce f %1 %2) acc s ops)
         :when (nil? n)]
-    [ops acc cont]))  
+    [k acc cont]))  
 
 ;; interpreter "loop" for "simultaneous" states
-(defn interpreter-step [f states s eof]
-  (mapcat (partial interpreter-step1 f (or s "") eof) states))
+(defn interpreter-step [f states s]
+  (mapcat (partial interpreter-step1 f s states)))
 
 ;;; ops
 ;; alternative
-(defop op-alt [& ops]
- [s eof cont] 
-  (map (fn [op] [nil 0 (cons op cont)]) ops)) 
+(def op-alt 
+  (flow-op [& ops] [cont] 
+    (map (fn [op] [nil 0 (cons op cont)]) ops))) 
   
 ;; sequence
-(defop op-cat [& ops]
- [s eof cont] 
-  [[nil 0 (concat ops cont)]])
+(def op-cat 
+  (flow-op [& ops] [cont] 
+    [[nil 0 (concat ops cont)]]))
 
 ;; start-span & end-span
-(defop op-events [events]
- [s eof cont] 
-  [[events 0 cont]])
+(def op-events 
+  (flow-op [events] [cont] 
+    [[events 0 cont]]))
 
-(defop op-repeat [op]
- [s eof cont] 
-  [[nil 0 cont] [nil 0 (list* op [op-repeat op] cont)]])
+(def op-repeat 
+  (flow-op [op] [cont] 
+    [[nil 0 cont] [nil 0 (list* op [op-repeat op] cont)]]))
 
-(defop op-lookahead [ops]
- [s eof cont]
-  (for [[_ n next-ops] (run-ops s eof ops)]
-    (if (seq next-ops)
-      (for [[events m next-cont] (interpreter-ops (if n (subs s 0 n) s) (when-not n eof) cont)
-            :when (nil? m)]
-        [events n (cons [op-lookahead next-ops] next-cont)])
-      [[nil 0 cont]])))
-  
-(defop op-negative-lookahead [ops]
- [s eof cont]
-  (if-let [r (seq (run-ops s eof ops))]
-    (for [[_ n next-ops] r]
-      (when (seq next-ops)
-        (for [[events m next-cont] (interpreter-ops (if n (subs s 0 n) s) (when-not n eof) cont)
+(defn- consume [n s]
+  (if n (subs s 0 n) s))
+
+(def op-lookahead 
+  (op [ops] [s cont]
+    (for [[_ n next-ops] (run-ops s ops)]
+      (if (seq next-ops)
+        (for [[events m next-cont] (interpret-ops (consume n s) cont)
               :when (nil? m)]
-          [events n (cons [op-negative-lookahead next-ops] next-cont)])))
-    [[nil 0 cont]]))      
+          [events n (cons [op-lookahead next-ops] next-cont)])
+        [[nil 0 cont]]))))
+  
+(def op-negative-lookahead
+  (op [ops] [s cont]
+    (if-let [r (seq (run-ops s ops))]
+      (for [[_ n next-ops] r]
+        (when (seq next-ops)
+          (for [[events m next-cont] (interpret-ops (consume n s) cont)
+                :when (nil? m)]
+            [events n (cons [op-negative-lookahead next-ops] next-cont)])))
+      [[nil 0 cont]])))      
   
 ;; string
-(defop op-string [#^String word]
- [#^String s eof cont] 
-  (cond
-    (.startsWith s word)
-      [[[word] (count word) cont]]
-    (.startsWith word s)
-      [[[s] nil (cons [op-string (subs word (count s))] cont)]]))
+(def op-string 
+  (op [#^String word] [#^String s cont] 
+    (cond
+      (nil? s) nil
+      (.startsWith s word)
+        [[[word] (count word) cont]]
+      (.startsWith word s)
+        [[[s] nil (cons [op-string (subs word (count s))] cont)]])))
 
-(defop op-eof []
- [s eof cont] 
-  (when (= "" s)
-    (if eof
-      [[nil nil cont]]  
-      [[nil nil (cons op-eof cont)]])))
+(def op-eof 
+  (op [] [s cont] 
+    (when-not s
+      [[nil nil cont]])))
     
