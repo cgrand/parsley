@@ -1,22 +1,43 @@
 (ns net.cgrand.parsley.demo
-  (:use [net.cgrand.parsley
-     :only [parser step reset stitch results stitchable? eof]] :reload))
+  (:use net.cgrand.parsley :reload)
+  (:use [net.cgrand.parsley.internal :as core] :reload))
      
 (def simple-lisp 
-  (parser {:space #"\s+"
-           :main :expr*} 
+  (grammar {:space [" "+]
+            :main :expr*} 
     :expr #{:symbol ["(" :expr* ")"]}
-    :symbol #"\w+"))   
+    :symbol (token {\a \z \A \Z} {\a \z \A \Z \0 \9}*)))   
 
+(-> simple-lisp (step "a") count)
+
+(defmulti str-op first)
+(defmethod str-op :default [[op]] (str"?" op "?"))
+(defmethod str-op core/op-cat [[_ & xs]] (str "[" (apply str (interpose " " (map str-op xs))) "]"))
+(defmethod str-op core/op-alt [[_ & xs]] (str "#{" (apply str (interpose ", " (map str-op xs))) "}"))
+(defmethod str-op core/op-string [[_ s]] (pr-str s))
+(defmethod str-op core/op-repeat [[_ op]] (str (str-op op) "*"))
+
+(defn str-ops [ops] (apply str (map str-op ops))) 
+
+  
+
+(comment
 (def clojure-parser 
-  (parser {:space #{#"[\s,]+" :comment}
-           :main :expr*} 
-    :expr #{:list :vector :map :set :fn 
-            :meta :with-meta :quote :syntax-quote :unquote :unquote-splice
-            :regex :string :number :keyword :symbol :nil :boolean :char}
+  (grammar {:space #{:white-space :comment :discard}
+            :main :expr*}
 
-    :comment #{#"(;|#!)[^\n]*(?=\n)"
-               ["#_" :expr]}
+    :terminating-macro- (one-of "\";']^`~()[]{}\\%")
+    :space- (one-of " \t\n\r,")
+    :eot- (with #{:terminating-macro :space eof})
+
+    :white-space (token :space+)  
+    :comment (token #{";" "#!"} [any-char (but "\n")]+) 
+    :discard ["#_" :expr]
+    
+ ;   :expr #{:list :vector :map :set :fn 
+ ;           :meta :with-meta :quote :syntax-quote :unquote :unquote-splice
+ ;           :regex :string :number :keyword :symbol :nil :boolean :char}
+    :expr #{:symbol :nil}
 
     :list ["(" :expr* ")"] 
     :vector ["[" :expr* "]"] 
@@ -33,21 +54,22 @@
     :deref ["@" :expr]
     :var ["#'" :expr]
 
-    :nil "nil"
-    :boolean #{"true" "false"}
+    :nil (token "nil" :eot)
+    :boolean (token #{"true" "false"} :eot)
     ;; todo: refine these terminals
-    :char #"\\."
-    :symbol #"\w+"
-    :keyword #":\w+"
-    :number #"\d+"
-    :string #"\"[^\"]*\""
-    :regex #"#\"[^\"]*\""))
+    :char (token \\ any-char)
+    :symbol (token (but :nil :boolean) {\a \z \A \Z}+ :eot)  
+    :keyword (token ":" {\a \z \A \Z}+ :eot)
+    :number (token {\0 \9}+)
+    :string (token \" #{[(but \" \\) any-char] [\\ any-char]}* \")
+    :regex (token "#\"" #{[(but \" \\) any-char] [\\ any-char]}* \")))
+    )
 
 ;; helper functions to display results in a more readable way 
 (defn terse-result [[items _]]
   (map (fn self [item]
          (if (map? item)
-           (cons (:class item) (map self (:contents item)))
+           (cons (:tag item) (map self (:content item)))
            item)) items))
 
 (defn prn-terse [results]

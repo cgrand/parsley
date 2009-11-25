@@ -6,8 +6,8 @@
 ;   the terms of this license.
 ;   You must not remove this notice, or any other, from this software.
 
-(ns net.cgrand.parsley.core.test
-  (:use net.cgrand.parsley.core :reload)
+(ns net.cgrand.parsley.internal.test
+  (:use net.cgrand.parsley.internal :reload)
   (:use [clojure.test :only [deftest is are]]))
 
 (def hello [op-string "hello"])
@@ -22,14 +22,13 @@
     :else
       (conj val event)))
 
-(defn- eq [expected results]
-  (= (set (map (partial cons nil) expected)) 
-    (set results)))
+(defn- eq [results expected]
+  (= (set expected) 
+    (set (map next results))))
 
 (deftest test-ops
   (are [cont s results] 
-    (eq results 
-      (interpreter-step1 append s [nil [] cont]))
+    (eq (interpreter-step1 append s [nil [] cont]) results)
     [hello] "hello", [[["hello"] nil]]
     [hello] "hel", [[["hel"] [[op-string "lo"]]]]
     [hello] "", [[[] [hello]]]
@@ -63,17 +62,17 @@
     [[op-eof]] "", [[[] [[op-eof]]]]  
     [[op-eof]] nil, [[[] nil]]  
 
-    [[op-lookahead [[op-string "hallo"]]] hello] "h", 
-      [[["h"] [[op-lookahead [[op-string "allo"]]] [op-string "ello"]]]] 
-    [[op-lookahead [[op-string "hallo"]]] hello] "ha", nil 
-    [[op-lookahead [[op-string "hallo"]]] hello] "he", nil 
-    [[op-lookahead [[op-string "hel"]]] hello] "hel", 
+    [[op-lookahead [op-string "hallo"]] hello] "h", 
+      [[["h"] [[op-lookahead [op-string "allo"]] [op-string "ello"]]]] 
+    [[op-lookahead [op-string "hallo"]] hello] "ha", nil 
+    [[op-lookahead [op-string "hallo"]] hello] "he", nil 
+    [[op-lookahead [op-string "hel"]] hello] "hel", 
       [[["hel"] [[op-string "lo"]]]] 
 
-    [[op-negative-lookahead [[op-string "hallo"]]] hello] "h", 
-      [[["h"] [[op-negative-lookahead [[op-string "allo"]]] [op-string "ello"]]]] 
-    [[op-negative-lookahead [[op-string "hallo"]]] hello] "ha", nil 
-    [[op-negative-lookahead [[op-string "hallo"]]] hello] "he", 
+    [[op-negative-lookahead [op-string "hallo"]] hello] "h", 
+      [[["h"] [[op-negative-lookahead [op-string "allo"]] [op-string "ello"]]]] 
+    [[op-negative-lookahead [op-string "hallo"]] hello] "ha", nil 
+    [[op-negative-lookahead [op-string "hallo"]] hello] "he", 
       [[["he"] [[op-string "llo"]]]]
 
     [[op-events [:foo]]] "", [[[:foo] nil]]

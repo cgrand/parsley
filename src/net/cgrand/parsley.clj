@@ -205,14 +205,14 @@
 
 (defn crange [& chars]
   (let [cset (apply sorted-map (map int chars))]
-    [op-char-range cset]))
+    [core/char-range-op cset]))
 
 (defn one-of [& xs]
   (let [s (map int (apply str xs))
         cset (reduce (fn [cset x] (assoc cset x x)) (sorted-map) s)]
-    [op-char-range cset]))
+    [core/char-range-op cset]))
     
-(def any-char [op-char-range {0 Integer/MAX_VALUE}])
+(def any-char [core/char-range-op {0 Integer/MAX_VALUE}])
 
 (def eof [core/op-eof])
 
