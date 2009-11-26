@@ -38,9 +38,10 @@
             :main :expr*}
 
     :terminating-macro- (one-of "\";']^`~()[]{}\\%")
+    :macro- #{:terminating-macro (one-of "@#")}
     :space- (one-of " \t\n\r,")
-    :eot- (with #{:terminating-macro :space eof})
-
+    :token-char- [(but #{:terminating-macro :space}) any-char]
+    
     :white-space (token :space+)  
     :comment (token #{";" "#!"} [(but "\n") any-char]*) 
     :discard ["#_" :expr]
@@ -59,21 +60,22 @@
     :with-meta ["#^" :expr :expr]
     :quote ["'" :expr] 
     :syntax-quote ["`" :expr]
-    :unquote ["~" :expr] 
+    :unquote ["~" :expr]
     :unquote-splice ["~@" :expr]
     :deref ["@" :expr]
     :var ["#'" :expr]
 
-    :nil (token "nil" :eot)
-    :boolean (token #{"true" "false"} :eot)
+    :nil (token "nil" (but :token-char))
+    :boolean (token #{"true" "false"} (but :token-char))
     ;; todo: refine these terminals
     :char (token \\ any-char)
-    :namespace- (token (not-one-of "/" {\0 \9}) [(but :eot) any-char]* "/")
-    :symbol (token (but :nil :boolean) 
-              #{"/"
-                "clojure.core//"
-                [:namespace? {\a \z \A \Z}+]} :eot)  
-    :keyword (token ":" {\a \z \A \Z}+ :eot)
+    :namespace- (token (not-one-of "/" {\0 \9}) :token-char* "/")
+    :name- (token (not-one-of "/" {\0 \9}) [(but "/") :token-char]*)
+    :symbol (token (but :macro :nil :boolean) 
+              #{["/" (but :token-char)]
+                ["clojure.core//" (but :token-char)]
+                [:namespace? :name]})
+    :keyword (token (with ":") :namespace? :name)
     :number (token {\0 \9}+)
     :string (token \" #{[(but \" \\) any-char] [\\ any-char]}* \")
     :regex (token "#\"" #{[(but \" \\) any-char] [\\ any-char]}* \")))
