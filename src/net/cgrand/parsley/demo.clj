@@ -1,12 +1,24 @@
+;   Copyright (c) Christophe Grand. All rights reserved.
+;   The use and distribution terms for this software are covered by the
+;   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+;   which can be found in the file epl-v10.html at the root of this distribution.
+;   By using this software in any fashion, you are agreeing to be bound by
+;   the terms of this license.
+;   You must not remove this notice, or any other, from this software.
+
 (ns net.cgrand.parsley.demo
   (:use net.cgrand.parsley :reload)
   (:use [net.cgrand.parsley.internal :as core] :reload))
-     
+
+;; TRY AT YOUR OWN RISK :-)
+
 (def simple-lisp 
   (grammar {:space [" "+]
             :main :expr*} 
-    :expr #{:symbol ["(" :expr* ")"]}
-    :symbol (token {\a \z \A \Z} {\a \z \A \Z \0 \9}*)))   
+    :eot- (with #{(one-of "()") eof})
+    :expr #{:symbol ["(" :expr* ")"] :nil}
+    :nil (token "nil" :eot)
+    :symbol (token (but :nil) {\a \z \A \Z \- \-} {\a \z \A \Z \0 \9 \- \-}*)))   
 
 (-> simple-lisp (step "a") count)
 
@@ -21,7 +33,6 @@
 
   
 
-(comment
 (def clojure-parser 
   (grammar {:space #{:white-space :comment :discard}
             :main :expr*}
@@ -31,13 +42,12 @@
     :eot- (with #{:terminating-macro :space eof})
 
     :white-space (token :space+)  
-    :comment (token #{";" "#!"} [any-char (but "\n")]+) 
+    :comment (token #{";" "#!"} [(but "\n") any-char]*) 
     :discard ["#_" :expr]
     
- ;   :expr #{:list :vector :map :set :fn 
- ;           :meta :with-meta :quote :syntax-quote :unquote :unquote-splice
- ;           :regex :string :number :keyword :symbol :nil :boolean :char}
-    :expr #{:symbol :nil}
+    :expr #{:list :vector :map :set :fn 
+            :meta :with-meta :quote :syntax-quote :unquote :unquote-splice
+            :regex :string :number :keyword :symbol :nil :boolean :char}
 
     :list ["(" :expr* ")"] 
     :vector ["[" :expr* "]"] 
@@ -58,15 +68,44 @@
     :boolean (token #{"true" "false"} :eot)
     ;; todo: refine these terminals
     :char (token \\ any-char)
-    :symbol (token (but :nil :boolean) {\a \z \A \Z}+ :eot)  
+    :namespace- (token (not-one-of "/" {\0 \9}) [(but :eot) any-char]* "/")
+    :symbol (token (but :nil :boolean) 
+              #{"/"
+                "clojure.core//"
+                [:namespace? {\a \z \A \Z}+]} :eot)  
     :keyword (token ":" {\a \z \A \Z}+ :eot)
     :number (token {\0 \9}+)
     :string (token \" #{[(but \" \\) any-char] [\\ any-char]}* \")
     :regex (token "#\"" #{[(but \" \\) any-char] [\\ any-char]}* \")))
-    )
+    
+(def test-comment
+  (grammar {:main :expr* :space [(one-of " \t\n\r,")+]}
+    :expr [:line :comment]
+    :line [[(but ";") {\a \z}]*]
+    :comment (token ";" [(but "\n") any-char]*)))  
+
+(-> test-comment (step "a ;b\nc;d") (step nil) results (->> (map #(apply str (e/emit* %)))))
+
+(defn find-error [s g]
+  (loop [seen [] s s p g]
+    (if (empty? p)
+      (apply str seen)
+      (when-let [[c & s] (seq s)]
+        (recur (conj seen c) s (step p (str c)))))))
+  
+  if (and (seq s) (-> f (step s) count zero?))
+    (let [i (quot (count s) 2)
+          s1 (subs s 0 i)
+          s2 (subs s i)
+          ]
+      (if (-> f (step s1) count zero?)
+        
+        
+      
+    
 
 ;; helper functions to display results in a more readable way 
-(defn terse-result [[items _]]
+(defn terse-result [items]
   (map (fn self [item]
          (if (map? item)
            (cons (:tag item) (map self (:content item)))
@@ -77,7 +116,7 @@
     (prn (terse-result result))))
     
 ;; let's parse this snippet
-(-> simple-lisp (step "()(hello)") eof results prn-terse)
+(-> simple-lisp (step "()(hello)") (step nil) results prn-terse)
 ;;> ((:main (:expr "()") (:expr "(" (:expr (:symbol "hello")) ")")))
 
 ;; let's parse this snippet in two steps
