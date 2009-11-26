@@ -315,7 +315,7 @@
         atom-names (map gensym rules-names)
         bodies (for [[kw rule] rules] 
                  (if (private? kw) `(spec ~rule) `(span ~kw ~rule)))
-        space-spec (if-let [space (options-map :space)] `(cat ~space ~'?) `(cat))]
+        space-spec (if-let [space (options-map :space)] `(cat ~space ~'*) `(cat))]
    `(let [~@(interleave atom-names (repeat `(atom nil)))
           opts# {:rules ~(zipmap (map keyword rules-names) atom-names)}
           space-op# (normalize opts# (spec ~space-spec))
