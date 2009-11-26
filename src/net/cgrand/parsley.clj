@@ -198,7 +198,7 @@
   `(but* (alt ~@forms)))
 
 (defn with* [& ops]
-  (cons core/op-negative-lookahead ops))
+  (cons core/op-lookahead ops))
 
 (defmacro with [& forms]
   `(with* ~@(map compile-spec forms)))
