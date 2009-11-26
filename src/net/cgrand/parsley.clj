@@ -207,12 +207,24 @@
   (let [cset (apply sorted-map (map int chars))]
     [core/char-range-op cset]))
 
+(defn- cset [xs]
+  (letfn [(ranges [x] 
+            (if (map? x)
+              (for [[k v] x] [(int k) (int v)])
+                (map #(let [i (int %)] [i i]) (str x))))]
+    (into (sorted-map) (mapcat ranges  xs))))
+
+(defn- complement-cset [cset]
+  (into (sorted-map)
+    (map vector (cons 0 (keys cset)) (concat (vals cset) [Integer/MAX_VALUE]))))
+
 (defn one-of [& xs]
-  (let [s (map int (apply str xs))
-        cset (reduce (fn [cset x] (assoc cset x x)) (sorted-map) s)]
-    [core/char-range-op cset]))
+  [core/char-range-op (cset xs)])
     
-(def any-char [core/char-range-op {0 Integer/MAX_VALUE}])
+(defn not-one-of [& xs]
+  [core/char-range-op (-> xs cset complement-cset)])
+    
+(def any-char (not-one-of))
 
 (def eof [core/op-eof])
 
