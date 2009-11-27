@@ -76,12 +76,14 @@
     :boolean (token #{"true" "false"} (but :token-char))
     ;; todo: refine these terminals
     :char (token \\ any-char)
-    :namespace- (token (not-one-of "/" {\0 \9}) :token-char* "/")
+    :namespace- (token (not-one-of "/" {\0 \9}) :token-char*? "/")
     :name- (token (not-one-of "/" {\0 \9}) [(but "/") :token-char]*)
-    :symbol (token (but :macro :nil :boolean) 
-              #{["/" (but :token-char)]
+    :symbol (token  
+              #{["%" :token-char*]
+                ["%&"]
+                ["/" (but :token-char)]
                 ["clojure.core//" (but :token-char)]
-                [:namespace? :name]})
+                [(but :macro :nil :boolean ":") :namespace? :name]})
     :keyword (token (with ":") :namespace? :name)
     :number (token {\0 \9}+)
     :string (token \" #{[(but \" \\) any-char] [\\ any-char]}* \")
