@@ -197,11 +197,18 @@
 (defmacro but [& forms] 
   `(but* (alt ~@forms)))
 
+(defmacro ?! [& forms]
+  `(but ~@forms))
+
 (defn with* [& ops]
   (cons core/op-lookahead ops))
 
 (defmacro with [& forms]
   `(with* ~@(map compile-spec forms)))
+
+(defmacro ?= [& forms]
+  `(with ~@forms))
+
 
 (defn crange [& chars]
   (let [cset (apply sorted-map (map int chars))]
