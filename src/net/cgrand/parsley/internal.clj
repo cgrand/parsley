@@ -22,52 +22,49 @@
   (apply f s cont args))
 
 ;;;; interpreter "loop" for 1 state
-(defn interpret-ops* 
+(defn interpret-ops 
  "interpret-ops* returns a seq of [data unconsumed-char-count remaining-ops].
   uncomsumed-char-count and remaining-ops are mutually exclusive (either
-  uncomsumed-char-count is nol or remaining-ops empty."  
- [f init s ops]
+  uncomsumed-char-count is nil or remaining-ops empty."  
+ [s ops]
   (let [l (count s)
         step1 (fn step1 [s acc ops]
                 (if-let [[op & next-ops] (seq ops)]
-                  (mapcat (fn [[events n cont]]
-                            (let [acc (f acc events)]
-                              (cond
-                                (not s) (step1 nil acc cont) ; EOF
-                                n (step1 (subs s n) acc cont)
-                                :else [[acc nil cont]])))
-                    (interpret-op op s next-ops))
+                  (let [results (seq (interpret-op op s next-ops))]
+                    (cond
+                      (next results)
+                        (mapcat (fn [[events n cont]]
+                                  (let [acc (into acc events)]
+                                    (cond
+                                      (not s) (step1 nil acc cont) ; EOF
+                                      n (step1 (subs s n) acc cont)
+                                      :else [[acc nil cont]])))
+                          results)
+                      results
+                        (let [[events n cont] (first results)
+                              acc (into acc events)]
+                          (cond
+                            (not s) (recur nil acc cont) ; EOF
+                            n (recur (subs s n) acc cont)
+                            :else [[acc nil cont]]))))
                   [[acc (when (seq s) (- l (count s))) nil]]))]                      
-    (step1 s init ops)))
-
-(def interpret-ops (partial interpret-ops* into [])) 
-
-(def run-ops (partial interpret-ops* (constantly nil) nil)) 
+    (step1 s [] ops)))
 
 (defn interpreter-step1 [f s [k acc ops]]
-  (for [[acc n cont] (interpret-ops* #(reduce f %1 %2) acc s ops)
+  (for [[events n cont] (interpret-ops s ops)
         :when (nil? n)]
-    [k acc cont]))  
-
-(defn initial-state [ops]
-  [[[] nil ops]])
-
-(defn advance-states [states s]
-  (for [[events _ ops] states
-        [next-events n next-ops :as state] (interpret-ops* into events s ops)
-        :when (nil? n)]
-    state))
+    [k (reduce f acc events) cont]))  
 
 ;; interpreter "loop" for "simultaneous" states
 (defn interpreter-step [f states s]
-  (mapcat (partial interpreter-step1 f s) states))
+  (mapcat #(interpreter-step1 f s %) states))
 
 ;;; ops
 ;; alternative
 (def op-alt 
   (flow-op [& ops] [cont] 
     (map (fn [op] [nil 0 (cons op cont)]) ops))) 
-  
+
 ;; sequence
 (def op-cat 
   (flow-op [& ops] [cont]
@@ -97,14 +94,14 @@
 
 (def op-lookahead 
   (op [& ops] [s cont]
-    (when-let [conts (seq (map #(nth % 2) (run-ops s ops)))]
+    (when-let [conts (seq (map #(nth % 2) (interpret-ops s ops)))]
       (if (some empty? conts)
         [[nil 0 cont]]
         (advance-lookahead op-lookahead conts s cont)))))
   
 (def op-negative-lookahead
   (op [& ops] [s cont]
-    (if-let [conts (seq (map #(nth % 2) (run-ops s ops)))]
+    (if-let [conts (seq (map #(nth % 2) (interpret-ops s ops)))]
       (when (every? first conts)
         (advance-lookahead op-negative-lookahead conts s cont))
       [[nil 0 cont]])))
