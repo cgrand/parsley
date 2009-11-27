@@ -216,7 +216,9 @@
 
 (defn- complement-cset [cset]
   (into (sorted-map)
-    (map vector (cons 0 (keys cset)) (concat (vals cset) [Integer/MAX_VALUE]))))
+    (map vector 
+      (cons 0 (map inc (vals cset))) 
+      (concat (map dec (keys cset)) [Integer/MAX_VALUE]))))
 
 (defn one-of [& xs]
   [core/char-range-op (cset xs)])
