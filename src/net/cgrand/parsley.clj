@@ -8,7 +8,7 @@
 
 (ns net.cgrand.parsley
   "An experimental undocumented parser lib/DSL."
-  (:require [net.cgrand.parsley.internal :as core] :reload))
+  (:require [net.cgrand.parsley.internal :as core]))
 
 ;; Parsley can parse ambiguous grammars and thus returns several results.
 ;; no support for left recursion (yet)

@@ -7,14 +7,14 @@
 ;   You must not remove this notice, or any other, from this software.
 
 (ns net.cgrand.parsley.demo
-  (:use net.cgrand.parsley :reload)
-  (:use [net.cgrand.parsley.internal :as core] :reload))
+  (:use net.cgrand.parsley :reload-all)
+  (:require [net.cgrand.parsley.internal :as core]))
 
 ;; TRY AT YOUR OWN RISK :-)
 
 (def simple-lisp 
   (grammar {:space [" "+]
-            :main :expr*} 
+            :main [:expr* eof]} 
     :eot- (with #{(one-of "()") eof})
     :expr #{:symbol ["(" :expr* ")"] :nil}
     :nil (token "nil" :eot)
@@ -23,19 +23,26 @@
 (-> simple-lisp (step "a") count)
 
 (defmulti str-op first)
-(defmethod str-op :default [[op]] (str"?" op "?"))
-(defmethod str-op core/op-cat [[_ & xs]] (str "[" (apply str (interpose " " (map str-op xs))) "]"))
+(defn str-ops [ops] (apply str (interpose " " (map str-op ops)))) 
+
+(defmethod str-op :default [[op]] (str"?" (class op) "?"))
+(defmethod str-op core/op-cat [[_ & xs]] (str "[" (str-ops xs) "]"))
 (defmethod str-op core/op-alt [[_ & xs]] (str "#{" (apply str (interpose ", " (map str-op xs))) "}"))
 (defmethod str-op core/op-string [[_ s]] (pr-str s))
 (defmethod str-op core/op-repeat [[_ op]] (str (str-op op) "*"))
+(defmethod str-op core/op-lookahead [[_ & ops]] (str "(with " (str-ops ops) ")"))
+(defmethod str-op core/op-negative-lookahead [[_ & ops]] (str "(but " (str-ops ops) ")"))
 
-(defn str-ops [ops] (apply str (map str-op ops))) 
+(doseq [[_ _ x] (reduce step clojure-parser (take 10 selfs))] (println (str-ops x)))
 
+(defn copy [x] (-> (java.awt.Toolkit/getDefaultToolkit) .getSystemClipboard (.setContents (java.awt.datatransfer.StringSelection. (str x)) nil)))
+
+(defn str-cont [[_ _ cont]] (str-ops cont))
   
 
 (def clojure-parser 
   (grammar {:space #{:white-space :comment :discard}
-            :main :expr*}
+            :main [:expr* eof]}
 
     :terminating-macro- (one-of "\";']^`~()[]{}\\%")
     :macro- #{:terminating-macro (one-of "@#")}
