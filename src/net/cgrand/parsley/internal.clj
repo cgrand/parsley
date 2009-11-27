@@ -17,7 +17,7 @@
 (defmacro flow-op [args context & body]
   `(op ~args [_# ~@context] ~@body))
 
-;;;; op interpreter fn, returns a coll of [events n-or-nil alter-cont]
+;;;; op interpreter fn, returns a coll of [events n-or-nil cont]
 (defn interpret-op [[f & args] s cont]
   (apply f s cont args))
 
