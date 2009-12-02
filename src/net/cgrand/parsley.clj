@@ -323,8 +323,41 @@
 (defmethod normalize :default [opts op]
   op)
 
+(comment
+(defmulti get-lookaheads first)
 
+(defmethod get-lookaheads :default [op]
+  [[0 Integer/MAX_VALUE op] :pass])
+  
+(defmethod get-lookaheads core/op-alt [[_ & ops]]
+  (mapcat get-lookaheads ops))
 
+(defmethod get-lookaheads core/op-cat [[_ & ops]]
+  (let [[pass-ops etc] (split-with can-pass? ops)]
+        
+  ???))
+
+(defmethod get-lookaheads core/op-lookahead [[_ & ops]]
+  ???)
+
+(defmethod get-lookaheads core/op-events  [_]
+  [:pass])
+  
+(defmethod get-lookaheads core/op-repeat  [[_ op]]
+  (cons :pass (get-lookaheads op)))
+
+(defmethod get-lookaheads core/op-string [[_ s :as op]]
+  (if-let [c (first s)]
+    [[[(int s) (int s)] op]]
+    [[nil :pass]]))
+
+(defmethod get-lookaheads core/char-range-op  [[_ ranges]]
+  (map #(vector % core/consume-char) (seq ranges)))
+
+(defmethod get-lookaheads core/op-eof  [_])
+  )
+  
+  
 
 (defmacro span [name & ops]
   `(cat (events [:start-span ~name]) ~@ops (events [:end-span ~name])))   
@@ -334,6 +367,69 @@
 (defn- private? [kw]
   (.endsWith (name kw) "-"))
 
+;;;;;;;;
+(defmulti split-op 
+ "split an operation into two sets of ops: those that match 
+  non-empty string and those that don't." 
+  (fn [[op]]
+    (if (#{core/op-ref core/char-range-op core/op-eof} op) 
+      :not-empty
+      op)))
+
+(defmethod split-op core/op-cat [[_ & ops]]
+  (let [split-ops (map split-op ops)]
+    (reduce (fn [[non-empty empty] [ne e]]
+              [(concat (for [ops non-empty op (concat ne e)] (conj ops op))
+                 (for [ops empty op ne] (conj ops op)))
+               (concat (for [ops empty op e] (conj ops op)))]) 
+      [[] [[core/op-cat]]] split-ops))) 
+
+(defmethod split-op core/op-alt [[_ & ops]]
+  (let [split-ops (map split-op ops)]
+    [(mapcat first split-ops) (mapcat second split-ops)])) 
+
+(defmethod split-op core/op-string [[_ word :as op]]
+  (if (empty? word)
+    [[op] nil]
+    [nil [op]]))
+
+(defmethod split-op :not-empty [op]
+  [[op] nil])
+
+(defmethod split-op :default [op]
+  [nil [op]])
+
+
+(defmulti replace-op (fn [[op] _] op))
+
+(defmethod replace-op :default [op _] op)
+
+(defmethod replace-op core/op-alt [[_ & ops] smap]
+  (apply alt* (map #(smap % %) ops)))  
+
+(defmethod replace-op core/op-cat [[_ & ops] smap]
+  (apply cat* (map #(smap % %) ops)))  
+
+(defmethod replace-op core/op-repeat [[_ op] smap]
+  (cons core/op-repeat (smap op op)))  
+
+(defmethod replace-op core/op-negative-lookahead [[_ & ops] smap]
+  (cons core/op-negative-lookahead (map #(smap % %) ops)))  
+
+(defmethod replace-op core/op-lookahead [[_ & ops] smap]
+  (cons core/op-lookahead (map #(smap % %) ops)))  
+
+(defn inline-empty-paths [grammar]
+  (if-let [[split-k [ne e]] (some (fn [[k op]]
+                                    (let [[_ e :as s] (split-op op)] 
+                                      (when (seq e) [k s]))) grammar)]
+    (let [smap {split-k  (apply alt* [core/op-ref split-k] e)}]                                  
+      (recur (into {} 
+               (for [[k op] (assoc grammar split-k (apply alt* ne))]
+                 [k (replace-op op smap)]))))
+      grammar))
+        
+;;;;;;;;;;;
 (defmacro grammar [options-map & rules]
   (let [[options-map rules] (if (map? options-map) 
                               [options-map rules]
@@ -356,7 +452,9 @@
           space-op# (normalize opts# (spec ~space-spec))
           opts# (assoc opts# :space space-op#)
           main-op# (cat* space-op# (normalize opts# (spec ~main)) space-op#)
-          ops# ~(zipmap atom-names bodies)]
+          ops# (-> (zipmap [~@atom-names] (map (partial normalize opts#)
+                                            [~@bodies]))
+                 inline-empty-paths)]
       (doseq [[a# op#] ops#]
-        (reset! a# (normalize opts# op#)))
+        (reset! a# op#))
       (parser [main-op#] ~seed ~reducer ~stitch ~result))))
