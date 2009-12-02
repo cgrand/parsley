@@ -186,7 +186,21 @@
   `(one-or-more* (spec ~form))) 
 
 (defn alt* [& ops]
-  (inline-same-ops core/op-alt ops))   
+  (let [[alt & ops :as op] (inline-same-ops core/op-alt ops)]
+    (if (= core/op-alt alt)
+      (let [cat? (comp #{core/op-cat} first)
+            cats (filter cat? ops)
+            non-cats (remove cat? ops)
+            cats-by-prefix
+              (group-reduce second #(conj %1 (apply cat* (nnext %2))) 
+                #{} cats)
+            _ (println (count cats-by-prefix) "/" (count cats))  
+            prefixed-alts
+              (map (fn [[prefix ops]] (cat* prefix (apply alt* ops)))
+                cats-by-prefix)
+            alts (concat non-cats prefixed-alts)]
+        (inline-same-ops core/op-alt alts))
+      op)))
 
 (defmacro alt [& forms]
   `(alt* ~@(map compile-spec forms)))
