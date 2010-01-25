@@ -215,11 +215,11 @@
 
 (defn step1 [[stack :as stack+data] table c]
   (let [state (peek stack)]
-    (when-let [[op sym-or-state :as action] 
+    (when-let [[op :as action] 
                  (-> table (get state) first (get (one (int c))) first)]
       (cond
         (= :shift op)
-          (shift stack+data c sym-or-state)  
+          (shift stack+data c (second action))  
         (= :reduce op)
           (recur (reduce-prod stack+data action table) table c)))))
 
