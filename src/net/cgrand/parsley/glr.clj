@@ -199,24 +199,29 @@
       {:tag tag :content content}
       content)))
 
-(defn step1 [[stack unreducible-data data] table c]
+(defn- shift [[stack unreducible-data data :as stack+data] c new-state]
+  (if (= *eof* c) 
+    stack+data
+    [(conj stack new-state) unreducible-data (conj data c)]))
+
+(defn- reduce-prod [[stack unreducible-data data] action table]
+  (let [[_ sym tag n] action
+        stack (popN stack n)
+        new-state (-> table (get (peek stack)) second (get sym))
+        stack (conj stack new-state)]
+    (if (>= (count data) n)
+      [stack unreducible-data (conj (popN data n) (make-node tag (peekN data n)))] 
+      [stack (-> unreducible-data (into data) (conj action)) []])))
+
+(defn step1 [[stack :as stack+data] table c]
   (let [state (peek stack)]
-    (when-let [[op :as action] (-> table (get state) first (get (one (int c))) first)]
+    (when-let [[op sym-or-state :as action] 
+                 (-> table (get state) first (get (one (int c))) first)]
       (cond
         (= :shift op)
-          (if (= *eof* c) 
-            [stack unreducible-data data]
-            [(conj stack (second action)) unreducible-data (conj data c)])
+          (shift stack+data c sym-or-state)  
         (= :reduce op)
-          (let [[_ sym tag n] action
-                stack (popN stack n)
-                stack (conj stack (-> table (get (peek stack)) second (get sym)))]
-            (if (>= (count data) n)
-              (recur [stack unreducible-data 
-                       (conj (popN data n) (make-node tag (peekN data n)))] 
-                table c)
-              (recur [stack (-> unreducible-data (into data) (conj action)) []] 
-                table c)))))))
+          (recur (reduce-prod stack+data action table) table c)))))
 
 (defn step [stack table s]
   (reduce #(step1 %1 table %2) stack s)) 
