@@ -129,19 +129,13 @@
 (defn- assoc-multi [map k val]
   (assoc map k (conj (map k #{}) val)))
 
-(defn- wrap-vals [f map]
-  (into map (for [[k v] map] [k (f v)]))) 
-
 (defn transitions [close tags state]
   (let [close-transitions #(into % (for [[k state] %] [k (close state)]))
         shift-prods (filter (comp set? follow) state)
-        shifts (wrap-vals (fn [x] #{[:shift x]})
-                 (-> (rmap 
-                       (for [[k n [terminal & etc]] shift-prods 
-                             :let [p #{[k n etc]}], r terminal]
-                         [r p]))
-                   compact-rangemap
-                   close-transitions))
+        shifts (-> (rmap (for [[k n [terminal & etc]] shift-prods 
+                               :let [p #{[k n etc]}], r terminal]
+                           [r p]))
+                 compact-rangemap close-transitions)
         goto-prods (filter (comp keyword? follow) state)
         gotos (close-transitions
                 (reduce (fn [gotos [k n [non-terminal & etc]]]
@@ -149,14 +143,11 @@
                      {} goto-prods))
         reduce-prods (filter (comp nil? follow) state)
         reduces (rmap (for [[k n] reduce-prods] 
-                        [[*min* *max*] #{[:reduce k (tags k) n]}]))]
-    [(into-rangemap shifts reduces) gotos]))
+                        [[*min* *max*] #{[k (tags k) n]}]))]
+    [shifts reduces gotos]))
 
-(defn- to-states [[actions-table gotos]]
-  (concat (for [actions (vals actions-table), [action state] actions
-                :when (= :shift action)]
-            state) 
-    (vals gotos)))
+(defn- to-states [[shifts _ gotos]]
+  (concat (vals shifts) (vals gotos)))
      
 (defn lr-table [grammar start tags]
   (let [init (partial init-state grammar)
@@ -205,23 +196,23 @@
     [(conj stack new-state) unreducible-data (conj data c)]))
 
 (defn- reduce-prod [[stack unreducible-data data] action table]
-  (let [[_ sym tag n] action
+  (let [[sym tag n] action
         stack (popN stack n)
-        new-state (-> table (get (peek stack)) second (get sym))
+        gotos (-> table (get (peek stack)) (nth 2))
+        new-state (get gotos sym)
         stack (conj stack new-state)]
     (if (>= (count data) n)
       [stack unreducible-data (conj (popN data n) (make-node tag (peekN data n)))] 
-      [stack (-> unreducible-data (into data) (conj action)) []])))
+      [stack (-> unreducible-data (into data) (conj (cons :reduce action))) []])))
 
 (defn step1 [[stack :as stack+data] table c]
-  (let [state (peek stack)]
-    (when-let [[op :as action] 
-                 (-> table (get state) first (get (one (int c))) first)]
-      (cond
-        (= :shift op)
-          (shift stack+data c (second action))  
-        (= :reduce op)
-          (recur (reduce-prod stack+data action table) table c)))))
+  (let [state (peek stack)
+        crange (one (int c))]
+    (when-let [[shifts reduces] (table state)]
+      (if-let [next-state (shifts crange)]
+        (shift stack+data c next-state)
+        (when-let [r (-> reduces (get crange) first)]
+          (recur (reduce-prod stack+data r table) table c))))))
 
 (defn step [stack table s]
   (reduce #(step1 %1 table %2) stack s)) 
