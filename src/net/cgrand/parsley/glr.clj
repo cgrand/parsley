@@ -215,9 +215,8 @@
                 table c)
               (recur [stack (-> unreducible-data (into data) (conj action)) []] 
                 table c))))
-      (if (= *eof* c)
-        [stack unreducible-data data]
-        "oops"))))
+      (when (= *eof* c)
+        [stack unreducible-data data]))))
 
 (defn step [stack table s]
   (reduce #(step1 %1 table %2) stack s)) 
