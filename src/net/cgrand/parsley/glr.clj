@@ -132,7 +132,7 @@
 (defn- wrap-vals [f map]
   (into map (for [[k v] map] [k (f v)]))) 
 
-(defn transitions [close state]
+(defn transitions [close tags state]
   (let [close-transitions #(into % (for [[k state] %] [k (close state)]))
         shift-prods (filter (comp set? follow) state)
         shifts (wrap-vals (fn [x] #{[:shift x]})
@@ -149,7 +149,7 @@
                      {} goto-prods))
         reduce-prods (filter (comp nil? follow) state)
         reduces (rmap (for [[k n] reduce-prods] 
-                        [[*min* *max*] #{[:reduce k k n]}]))]
+                        [[*min* *max*] #{[:reduce k (tags k) n]}]))]
     [(into-rangemap shifts reduces) gotos]))
 
 (defn- to-states [[actions-table gotos]]
@@ -158,11 +158,11 @@
             state) 
     (vals gotos)))
      
-(defn lr-table [grammar start]
+(defn lr-table [grammar start tags]
   (let [init (partial init-state grammar)
         close (partial close init)
         state0 (-> start init close)
-        transitions (partial transitions close)]
+        transitions (partial transitions close tags)]
     [(fix-point 
        (fn [table]
          (let [states (mapcat to-states (vals table))
@@ -233,8 +233,9 @@
         :E #{[:E (ranges \* \+) :B] 
              [:B]},
         :B #{[(ranges [\0 \9])]}})
-(def table (lr-table g :S))
+(def table (lr-table g :S #{:S :B}))
 (def ttable (first table))
 (def sop [[(second table)] [] []])
+(-> sop (step ttable "1+2") (step ttable "+3") (step1 ttable -1) next second e/emit* (->> (apply str)))
 )
 
