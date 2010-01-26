@@ -18,40 +18,8 @@
     (<= hb la) 1
     :else 0))
 
-(def empty-ranges (sorted-set-by compare-ranges))
 (def empty-rangemap (sorted-map-by compare-ranges))
       
-(defn- gaps [l ranges h]
-  (let [boundaries (concat [l]
-                     (mapcat (fn [[l h]] [(dec l) (inc h)]) 
-                       (subseq ranges >= [l l] <= [h h])) 
-                     [h])]
-    (for [[l h] (partition 2 boundaries)
-          :when (<= l h)] [l h])))
-    
-(defn complement-ranges [ranges]
-  (into empty-ranges (gaps *min* ranges *max*)))
-
-(defn conj-ranges [ranges [l h :as lh]]
-  (let [ranges (into ranges (gaps l ranges h))
-        ranges (let [[a b :as ab] (ranges [l l])]
-                  (if (= a l) 
-                    ranges
-                    (-> ranges (disj ab) (conj [a (dec l)] [l b]))))
-        ranges (let [[a b :as ab] (ranges [h h])]
-                  (if (= b h) 
-                    ranges
-                    (-> ranges (disj ab) (conj [a h] [(inc h) b]))))]
-    ranges))
-
-(defn into-ranges 
- ([] empty-ranges)
- ([ranges] ranges)
- ([ranges range]
-   (reduce conj-ranges ranges range)) 
- ([ranges range & etc]
-   (reduce into-ranges (into-ranges ranges range) etc))) 
-
 (defn ranges [& xs]
   (set (for [x xs] (if (or (char? x) (number? x)) [(int x) (inc (int x))] 
                      (let [[l h] x] [(int l) (inc (int h))])))))
