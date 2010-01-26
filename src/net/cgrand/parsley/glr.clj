@@ -205,32 +205,35 @@
       [stack unreducible-data (conj (popN data n) (make-node tag (peekN data n)))] 
       [stack (-> unreducible-data (into data) (conj (cons :reduce action))) []])))
 
-(defn step1 [[stack :as stack+data] table c]
-  (let [state (peek stack)
-        crange (one (int c))]
-    (when-let [[shifts reduces] (table state)]
-      (if-let [next-state (shifts crange)]
-        (shift stack+data c next-state)
-        (when-let [r (-> reduces (get crange) first)]
-          (recur (reduce-prod stack+data r table) table c))))))
+(defn step1 [stacks table c]
+  (let [crange (one (int c))]
+    (set
+      (mapcat
+        (fn single-step1 [[stack :as stack+data]]
+          (when-let [[shifts reduces] (table (peek stack))]
+            (let [reds (mapcat #(single-step1 (reduce-prod stack+data % table))
+                         (reduces crange))]
+              (if-let [next-state (shifts crange)]
+                (cons (shift stack+data c next-state) reds)
+                reds))))
+        stacks))))
 
 (defn step [stack table s]
   (reduce #(step1 %1 table %2) stack s)) 
 
-(defn reset [[stack]] [stack [] []])
-            
-        
+(defn reset [stacks] (map (fn [[stack]] [stack [] []]) stacks))
 
 
 
 (comment
 (def g {:S #{[:E $]}, 
-        :E #{[:E (ranges \* \+) :B] 
+        :E #{[:E (ranges \* \+) :E] 
              [:B]},
         :B #{[(ranges [\0 \9])]}})
 (def table (lr-table g :S #{:S :B}))
 (def ttable (first table))
-(def sop [[(second table)] [] []])
-(-> sop (step ttable "1+2") (step ttable "+3") (step1 ttable -1) next second first e/emit* (->> (apply str)))
+(def sop [[[(second table)] [] []]])
+(-> sop (step ttable "1+2") (step ttable "+3+4") (step1 ttable -1) 
+  (->> (map (comp (partial apply str) e/emit* first #(nth % 2)))))
 )
 
