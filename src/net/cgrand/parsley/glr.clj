@@ -200,7 +200,7 @@
 
 (comment
 (def g {:S #{[:E $]}, 
-        :E #{[:E (ranges \* \+) :E] 
+        :E #{[:E (ranges \* \+) :B] 
              [:B]},
         :B #{[(ranges [\0 \9])]}})
 (def table (lr-table g :S #{:S :B}))
