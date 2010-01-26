@@ -76,7 +76,9 @@
 
 
 (defn measure [rhs]
-  (count rhs))
+  (if (map? (last rhs)) 
+    (dec (count rhs))
+    (count rhs)))
 
 (defn fix-point [f init]
   (let [v (f init)]
@@ -87,7 +89,7 @@
 (defn init-state [grammar k]
   (for [rhs (grammar k)] [k (measure rhs) rhs]))
 
-(defn follow [rule] (-> rule (nth 2) first))
+(defn follow [rule] (-> rule (nth 2) first (or {:follow1 [[*min* *max*]]})))
 
 (defn close [init-states state]
   (fix-point (fn [state]
@@ -109,9 +111,12 @@
                 (reduce (fn [gotos [k n [non-terminal & etc]]]
                           (assoc-multi gotos non-terminal [k n etc])) 
                      {} goto-prods))
-        reduce-prods (filter (comp nil? follow) state)
-        reduces (rmap (for [[k n] reduce-prods] 
-                        [[*min* *max*] #{[k (tags k) n]}]))]
+        reduce-prods (filter (comp map? follow) state)
+        reduces (-> (for [[k n :as prod] reduce-prods
+                          :let [{follow-set :follow1} (follow prod)]
+                          char-range follow-set] 
+                        [char-range #{[k (tags k) n]}])
+                  rmap compact-rangemap)]
     [shifts reduces gotos]))
 
 (defn- to-states [[shifts _ gotos]]
@@ -221,5 +226,35 @@
  "<E><E>1</E>+<E><E>2</E>+<E><E>3</E>+<E>4</E></E></E></E>" 
  "<E><E><E>1</E>+<E><E>2</E>+<E>3</E></E></E>+<E>4</E></E>" 
  "<E><E><E>1</E>+<E>2</E></E>+<E><E>3</E>+<E>4</E></E></E>")
+ 
+;; without follow restrictions 
+(def g {:S #{[:E $]},
+        :E #{[:A :AB]} 
+        :A #{[(ranges \a) :A] 
+             [(ranges \a)]},
+        :AB #{[:AB (ranges \a \b)]
+              [(ranges \a \b)]}})
+(def table (lr-table g :S identity))
+(def ttable (first table))
+(def sop [[[(second table)] [] []]])
+(-> sop (step ttable "aab") (step1 ttable -1) 
+  (->> (map (comp (partial apply str) e/emit* first #(nth % 2)))))
+("<E><A>a<A>a</A></A><AB>b</AB></E>" "<E><A>a</A><AB><AB>a</AB>b</AB></E>")
+
+;; with follow(1) restrictions 
+(def g {:S #{[:E $]},
+        :E #{[:A :AB]} 
+        :A #{[(ranges \a) :A] 
+             [(ranges \a) {:follow1 (ranges \b)}]},
+        :AB #{[:AB (ranges \a \b)]
+              [(ranges \a \b)]}})
+(def table (lr-table g :S identity))
+(def ttable (first table))
+(def sop [[[(second table)] [] []]])
+(-> sop (step ttable "aab") (step1 ttable -1) 
+  (->> (map (comp (partial apply str) e/emit* first #(nth % 2)))))
+("<E><A>a<A>a</A></A><AB>b</AB></E>")
+ 
+ 
 )
 
