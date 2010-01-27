@@ -228,8 +228,7 @@
  "<E><E><E>1</E>+<E>2</E></E>+<E><E>3</E>+<E>4</E></E></E>")
  
 ;; without follow restrictions 
-(def g {:S #{[:E $]},
-        :E #{[:A :AB]} 
+(def g {:S #{[:A :AB $]},
         :A #{[(ranges \a) :A] 
              [(ranges \a)]},
         :AB #{[:AB (ranges \a \b)]
@@ -238,12 +237,11 @@
 (def ttable (first table))
 (def sop [[[(second table)] [] []]])
 (-> sop (step ttable "aab") (step1 ttable -1) 
-  (->> (map (comp (partial apply str) e/emit* first #(nth % 2)))))
-("<E><A>a<A>a</A></A><AB>b</AB></E>" "<E><A>a</A><AB><AB>a</AB>b</AB></E>")
+  (->> (map (comp (partial apply str) e/emit* #(nth % 2)))))
+("<A>a<A>a</A></A><AB>b</AB>" "<A>a</A><AB><AB>a</AB>b</AB>")
 
 ;; with follow(1) restrictions 
-(def g {:S #{[:E $]},
-        :E #{[:A :AB]} 
+(def g {:S #{[:A :AB $]},
         :A #{[(ranges \a) :A] 
              [(ranges \a) {:follow1 (ranges \b)}]},
         :AB #{[:AB (ranges \a \b)]
@@ -252,9 +250,8 @@
 (def ttable (first table))
 (def sop [[[(second table)] [] []]])
 (-> sop (step ttable "aab") (step1 ttable -1) 
-  (->> (map (comp (partial apply str) e/emit* first #(nth % 2)))))
-("<E><A>a<A>a</A></A><AB>b</AB></E>")
- 
+  (->> (map (comp (partial apply str) e/emit* #(nth % 2)))))
+("<A>a<A>a</A></A><AB>b</AB>")
  
 )
 
