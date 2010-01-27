@@ -201,6 +201,29 @@
 (defn stitchable? [a b]
   (every? (comp (set (map #(nth % 3) b)) first) a)) 
 
+(defn- stitch-shift [[stack unreducible-data data src] c]
+  [stack unreducible-data (conj data c)]) 
+
+(defn- stitch-reduce-prod [[stack unreducible-data data src] action]
+  (let [[sym tag n] action]
+    (if (>= (count data) n)
+      [stack unreducible-data 
+        (conj (popN data n) (make-node tag (peekN data n))) src]
+      [stack (-> unreducible-data (into data) (conj (list :reduce action))) 
+        [] src])))
+
+(defn stitch [a b]
+  (set
+    (for [[stack-a unred-a data-a src-a :as sa] a
+          [stack-b unred-b data-b src-b :as sb] b
+          :when (= stack-a src-b)]
+      (let [stack+data (reduce (fn [s event]
+                                 (if (list? event)
+                                   (stitch-reduce-prod s (second event))
+                                   (stitch-shift s event))) 
+                         [stack-b unred-a data-a src-a] unred-b)
+            stack+data (reduce stitch-shift stack+data data-b)]
+         stack+data))))
 
 (comment
 (defn prd [stacks]
@@ -259,21 +282,27 @@
 "<A>a<A>a</A></A><AB>b</AB>"
  
 ;; incremental
-(def g {:S #{[:E $]},
+(def g {:S #{[:E+ $]},
+        :E+ #{[:E :E+] [:E]}
         :E #{[(ranges [\a \z])] 
-             [:E :E]
-             [(ranges \():E (ranges \))]}})
-(def table (lr-table g :S identity))
+             [(ranges \():E+ (ranges \))]}})
+(def table (lr-table g :S #{:E}))
 (def ttable (first table))
 (def sop [[[(second table)] [] [] nil]])
-(-> sop (step ttable "a(aa)") (step1 ttable -1) prd) 
+(-> sop (step ttable "a((aa)a)") (step1 ttable -1) prd)
+"<E>a</E><E>(<E>(<E>a</E><E>a</E>)</E><E>a</E>)</E>"
 
-(def c1 (-> sop (step ttable "a(aa)")))
-(def c2 (-> (reset c1) (step ttable "(aa)")))
+(def c1 (-> sop (step ttable "a((aa)")))
+(def c2 (-> (reset c1) (step ttable "a)")))
 (stitchable? c1 c2)
+true
+(-> (stitch c1 c2) (step1 ttable -1) prd)
+"<E>a</E><E>(<E>(<E>a</E><E>a</E>)</E><E>a</E>)</E>"
 
-(def c1bis (-> sop (step ttable "a(aaa)")))
+(def c1bis (-> sop (step ttable "a((aaa)")))
 (stitchable? c1bis c2)
-
+true
+(-> (stitch c1bis c2) (step1 ttable -1) prd)
+"<E>a</E><E>(<E>(<E>a</E><E>a</E><E>a</E>)</E><E>a</E>)</E>"
 )
 
