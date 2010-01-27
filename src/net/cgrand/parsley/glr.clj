@@ -199,6 +199,10 @@
 
 
 (comment
+(defn prd [stacks]
+  (doseq [[_ _ data] stacks]
+    (println (->> data (make-node nil) e/emit* (apply str)))))
+
 (def g {:S #{[:E $]}, 
         :E #{[:E (ranges \* \+) :B] 
              [:B]},
@@ -206,9 +210,8 @@
 (def table (lr-table g :S #{:S :B}))
 (def ttable (first table))
 (def sop [[[(second table)] [] []]])
-(-> sop (step ttable "1+2") (step ttable "+3+4") (step1 ttable -1) 
-  (->> (map (comp (partial apply str) e/emit* first #(nth % 2)))))
-("<B>1</B>+<B>2</B>+<B>3</B>+<B>4</B>")
+(-> sop (step ttable "1+2") (step ttable "+3+4") (step1 ttable -1) prd) 
+"<B>1</B>+<B>2</B>+<B>3</B>+<B>4</B>"
 
 ;; ambiguous 
 (def g {:S #{[:E $]}, 
@@ -218,14 +221,13 @@
 (def table (lr-table g :S #{:S :E}))
 (def ttable (first table))
 (def sop [[[(second table)] [] []]])
-(-> sop (step ttable "1+2") (step ttable "+3+4") (step1 ttable -1) 
-  (->> (map (comp (partial apply str) e/emit* first #(nth % 2)))))
+(-> sop (step ttable "1+2") (step ttable "+3+4") (step1 ttable -1) prd)
 
-("<E><E><E><E>1</E>+<E>2</E></E>+<E>3</E></E>+<E>4</E></E>" 
- "<E><E>1</E>+<E><E><E>2</E>+<E>3</E></E>+<E>4</E></E></E>" 
- "<E><E>1</E>+<E><E>2</E>+<E><E>3</E>+<E>4</E></E></E></E>" 
- "<E><E><E>1</E>+<E><E>2</E>+<E>3</E></E></E>+<E>4</E></E>" 
- "<E><E><E>1</E>+<E>2</E></E>+<E><E>3</E>+<E>4</E></E></E>")
+"<E><E><E>1</E>+<E>2</E></E>+<E><E>3</E>+<E>4</E></E></E>
+<E><E><E>1</E>+<E><E>2</E>+<E>3</E></E></E>+<E>4</E></E>
+<E><E>1</E>+<E><E>2</E>+<E><E>3</E>+<E>4</E></E></E></E>
+<E><E>1</E>+<E><E><E>2</E>+<E>3</E></E>+<E>4</E></E></E>
+<E><E><E><E>1</E>+<E>2</E></E>+<E>3</E></E>+<E>4</E></E>"
  
 ;; without follow restrictions 
 (def g {:S #{[:A :AB $]},
@@ -236,9 +238,9 @@
 (def table (lr-table g :S identity))
 (def ttable (first table))
 (def sop [[[(second table)] [] []]])
-(-> sop (step ttable "aab") (step1 ttable -1) 
-  (->> (map (comp (partial apply str) e/emit* #(nth % 2)))))
-("<A>a<A>a</A></A><AB>b</AB>" "<A>a</A><AB><AB>a</AB>b</AB>")
+(-> sop (step ttable "aab") (step1 ttable -1) prd)
+"<A>a</A><AB><AB>a</AB>b</AB>
+<A>a<A>a</A></A><AB>b</AB>"
 
 ;; with follow(1) restrictions 
 (def g {:S #{[:A :AB $]},
@@ -249,9 +251,8 @@
 (def table (lr-table g :S identity))
 (def ttable (first table))
 (def sop [[[(second table)] [] []]])
-(-> sop (step ttable "aab") (step1 ttable -1) 
-  (->> (map (comp (partial apply str) e/emit* #(nth % 2)))))
-("<A>a<A>a</A></A><AB>b</AB>")
+(-> sop (step ttable "aab") (step1 ttable -1) prd) 
+"<A>a<A>a</A></A><AB>b</AB>"
  
 )
 
