@@ -163,20 +163,22 @@
       {:tag tag :content content}
       content)))
 
-(defn- shift [[stack unreducible-data data :as stack+data] c new-state]
+(defn- shift [[stack unreducible-data data src :as stack+data] c new-state]
   (if (= *eof* c) 
     stack+data
-    [(conj stack new-state) unreducible-data (conj data c)]))
+    [(conj stack new-state) unreducible-data (conj data c) src]))
 
-(defn- reduce-prod [[stack unreducible-data data] action table]
+(defn- reduce-prod [[stack unreducible-data data src] action table]
   (let [[sym tag n] action
         stack (popN stack n)
         gotos (-> table (get (peek stack)) (nth 2))
         new-state (get gotos sym)
         stack (conj stack new-state)]
     (if (>= (count data) n)
-      [stack unreducible-data (conj (popN data n) (make-node tag (peekN data n)))] 
-      [stack (-> unreducible-data (into data) (conj (cons :reduce action))) []])))
+      [stack unreducible-data 
+        (conj (popN data n) (make-node tag (peekN data n))) src] 
+      [stack (-> unreducible-data (into data) (conj (cons :reduce action))) 
+        [] src])))
 
 (defn step1 [stacks table c]
   (let [crange (one (int c))]
@@ -194,8 +196,10 @@
 (defn step [stack table s]
   (reduce #(step1 %1 table %2) stack s)) 
 
-(defn reset [stacks] (map (fn [[stack]] [stack [] []]) stacks))
+(defn reset [stacks] (map (fn [[stack]] [stack [] [] stack]) stacks))
 
+(defn stitchable? [a b]
+  (every? (comp (set (map #(nth % 3) b)) first) a)) 
 
 
 (comment
@@ -254,5 +258,22 @@
 (-> sop (step ttable "aab") (step1 ttable -1) prd) 
 "<A>a<A>a</A></A><AB>b</AB>"
  
+;; incremental
+(def g {:S #{[:E $]},
+        :E #{[(ranges [\a \z])] 
+             [:E :E]
+             [(ranges \():E (ranges \))]}})
+(def table (lr-table g :S identity))
+(def ttable (first table))
+(def sop [[[(second table)] [] [] nil]])
+(-> sop (step ttable "a(aa)") (step1 ttable -1) prd) 
+
+(def c1 (-> sop (step ttable "a(aa)")))
+(def c2 (-> (reset c1) (step ttable "(aa)")))
+(stitchable? c1 c2)
+
+(def c1bis (-> sop (step ttable "a(aaa)")))
+(stitchable? c1bis c2)
+
 )
 
