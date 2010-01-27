@@ -177,7 +177,7 @@
     (if (>= (count data) n)
       [stack unreducible-data 
         (conj (popN data n) (make-node tag (peekN data n))) src] 
-      [stack (-> unreducible-data (into data) (conj (cons :reduce action))) 
+      [stack (-> unreducible-data (into data) (conj (list :reduce action))) 
         [] src])))
 
 (defn step1 [stacks table c]
