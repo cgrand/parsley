@@ -20,12 +20,6 @@
 
 (def empty-rangemap (sorted-map-by compare-ranges))
       
-(defn ranges [& xs]
-  (set (for [x xs] (if (or (char? x) (number? x)) [(int x) (inc (int x))] 
-                     (let [[l h] x] [(int l) (inc (int h))])))))
-
-(def $ (ranges *eof*))
-
 (defn- one [n] [n (inc n)])
 
 (defn assoc-rangemap [rangemap [l h] vals]
@@ -73,6 +67,17 @@
 (defn compact-rangemap [rangemap]
   (rmap (compact-rvs rangemap)))
 
+(defn ranges [& xs]
+  (set (for [x xs] (if (or (char? x) (number? x)) [(int x) (inc (int x))] 
+                     (let [[l h] x] [(int l) (inc (int h))])))))
+
+(defn complement-ranges [s]
+  (let [m (-> empty-rangemap
+            (assoc-rangemap [*min* *max*] #{:a})
+            (into-rangemap (for [r s] [r #{:b}])))]
+    (for [[r s] m :when (not (:b s))] r)))   
+
+(def $ (ranges *eof*))
 
 
 (defn measure [rhs]

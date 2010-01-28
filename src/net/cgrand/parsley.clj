@@ -93,6 +93,11 @@
 (defmacro token [& specs]
   `[:token (spec ~@specs)])
 
+(defmacro ?= [x]
+  [:follow x])
+
+(defmacro ?! [x]
+  [:not-follow x])
 
 ;; 2. collect new rules
 (defn- genkey [s]
@@ -149,6 +154,12 @@
 (defmethod develop-alts :token [rewrites _ v]
   (develop-alts rewrites nil (second v)))
   
+(defmethod develop-alts :follow [rewrites _ v]
+  [[{:follow1 (apply core/ranges (second v))}]]) 
+
+(defmethod develop-alts :not-follow [rewrites _ v]
+  [[{:follow1 (core/complement-ranges (apply core/ranges (second v)))}]]) 
+
 (defmethod develop-alts :maybe-rewrite [rewrites _ x]
   [[(rewrites x x)]])
 
@@ -167,13 +178,16 @@
   (into {} (for [[k v] grammar] [k (set (develop-alts rewrites space v))])))) 
 
 ;; 4. remove-empty-prods
+(defn- empty-prod? [prod]
+  (every? :follow1 prod)) 
+
 (defn split-empty-prods [grammar]
   [(into {}
      (for [[k prods] grammar]
-       [k (set (remove empty? prods))]))
+       [k (set (remove empty-prod? prods))]))
    (set
      (for [[k prods] grammar
-           :when (some empty? prods)]
+           :when (some empty-prod? prods)]
        k))])
 
 (defn inline-empty-prods* [grammar]
@@ -244,7 +258,7 @@
                     (for [[name specs] rules]
                       [(or (private? name) name) `(spec ~specs)]))
           grammar (if space-name 
-                    (assoc grammar space-name `(spec ~(options-map :space)))
+                    (assoc grammar space-name `(token ~(options-map :space)))
                     grammar)]
     `[(->> ~grammar collect-new-rules 
          (apply develop ~space-name) inline-empty-prods 
@@ -253,19 +267,17 @@
       ~public-rulenames]))) 
 
 (comment
-;; ok it's ambiguous but it works
-(def table (apply core/lr-table (grammar :A #{[{\a \z}*] [\( :A* \)]})))
+(def table (apply core/lr-table 
+             (grammar {:main [:A*]
+                       :space [" "*]}
+               :atom (token {\a \z, \A \Z, \0 \9}+ (?! {\a \z, \A \Z, \0 \9}))
+               :A #{:atom [\( :A* \)]})))
 (def ttable (first table))
 (def sop [[[(second table)] [] [] nil]])
 (-> sop (core/step ttable "cccccc") (core/step1 ttable -1) core/prd)
-(-> sop (core/step ttable "aaaa") (core/step1 ttable -1) core/prd)
-(-> sop (core/step ttable "(aaaa)") (core/step1 ttable -1) core/prd)
-"<A>(<A>aaa</A><A>a</A>)</A>
-<A>(<A>a</A><A>a</A><A>a</A><A>a</A>)</A>
-<A>(<A>a</A><A>aaa</A>)</A>
-<A>(<A>aa</A><A>aa</A>)</A>
-<A>(<A>aaaa</A>)</A>
-<A>(<A>aa</A><A>a</A><A>a</A>)</A>
-<A>(<A>a</A><A>a</A><A>aa</A>)</A>
-<A>(<A>a</A><A>aa</A><A>a</A>)</A>"
+"'<A><atom>cccccc</atom></A>"
+(-> sop (core/step ttable "aa aa") (core/step1 ttable -1) core/prd)
+"<A><atom>aa</atom></A> <A><atom>aa</atom></A>"
+(-> sop (core/step ttable "(mapcat (partial collectrules tokenmode) (rest v))") (core/step1 ttable -1) core/prd)
+"<A>(<A><atom>mapcat</atom></A> <A>(<A><atom>partial</atom></A> <A><atom>collectrules</atom></A> <A><atom>tokenmode</atom></A>)</A> <A>(<A><atom>rest</atom></A> <A><atom>v</atom></A>)</A>)</A>"
 )
