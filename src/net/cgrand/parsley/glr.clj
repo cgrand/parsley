@@ -148,17 +148,27 @@
       (pos? s) (subvec stack 0 s)
       (zero? s) [])))
 
-(defn- merge-text [coll]
-  (lazy-seq
-    (let [[cs xs] (split-with (complement map?) coll)]
-      (cond
-        (seq cs)
-          (cons (apply str cs) (merge-text xs))
-        (seq xs)
-          (cons (first xs) (merge-text (rest xs))))))) 
+(defn- merge-nodes [nodes]
+  (let [[seed nodes] (if (vector? (first nodes)) 
+                       [(first nodes) (rest nodes)]
+                       [[] nodes])]
+    (reduce (fn self [nodes node]
+              (cond
+                (vector? node)
+                  (let [top (peek nodes)]
+                    (if (and (string? top) (string? (first node)))
+                      (-> nodes pop (conj (str top (first node)))
+                        (into (rest node)))
+                      (into nodes node)))
+                (char? node)
+                  (let [top (peek nodes)]
+                    (if (string? top)
+                      (-> nodes pop (conj (str top node)))
+                      (conj nodes (str node))))
+                :else (conj nodes node))) seed nodes)))
 
 (defn make-node [tag nodes]
-  (let [content (->> nodes (mapcat #(if (vector? %) % [%])) merge-text vec)]
+  (let [content (merge-nodes nodes)] 
     (if tag
       {:tag tag :content content}
       content)))
@@ -281,7 +291,7 @@
  
 ;; incremental
 (def g {:S #{[:E+ $]},
-        :E+ #{[:E :E+] [:E]}
+        :E+ #{[:E+ :E] [:E]}
         :E #{[(ranges [\a \z])] 
              [(ranges \():E+ (ranges \))]}})
 (def table (lr-table g :S #{:E}))
