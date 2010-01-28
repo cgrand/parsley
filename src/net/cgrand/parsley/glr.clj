@@ -177,8 +177,7 @@
     (if (>= (count data) n)
       [stack unreducible-data 
         (conj (popN data n) (make-node tag (peekN data n))) src] 
-      [stack (-> unreducible-data (into data) (conj (list :reduce action))) 
-        [] src])))
+      [stack (conj unreducible-data [data action]) [] src])))
 
 (defn step1 [stacks table c]
   (let [crange (one (int c))]
@@ -201,28 +200,27 @@
 (defn stitchable? [a b]
   (every? (comp (set (map #(nth % 3) b)) first) a)) 
 
-(defn- stitch-shift [[stack unreducible-data data src] c]
-  [stack unreducible-data (conj data c)]) 
+(defn- stitch-shift [[stack unreducible-data data src] more-data]
+  [stack unreducible-data (into data more-data)]) 
 
 (defn- stitch-reduce-prod [[stack unreducible-data data src] action]
   (let [[sym tag n] action]
     (if (>= (count data) n)
       [stack unreducible-data 
         (conj (popN data n) (make-node tag (peekN data n))) src]
-      [stack (-> unreducible-data (into data) (conj (list :reduce action))) 
-        [] src])))
+      [stack (conj unreducible-data [data action]) [] src])))
 
 (defn stitch [a b]
   (set
     (for [[stack-a unred-a data-a src-a :as sa] a
           [stack-b unred-b data-b src-b :as sb] b
           :when (= stack-a src-b)]
-      (let [stack+data (reduce (fn [s event]
-                                 (if (list? event)
-                                   (stitch-reduce-prod s (second event))
-                                   (stitch-shift s event))) 
+      (let [stack+data (reduce (fn [s [data action]]
+                                 (-> s
+                                   (stitch-shift data)
+                                   (stitch-reduce-prod action)))
                          [stack-b unred-a data-a src-a] unred-b)
-            stack+data (reduce stitch-shift stack+data data-b)]
+            stack+data (stitch-shift stack+data data-b)]
          stack+data))))
 
 (comment
