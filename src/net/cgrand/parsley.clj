@@ -208,10 +208,10 @@
   (core/fix-point inline-empty-prods* grammar)) 
 
 ;; 5. remove-singletons
-(defn remove-singletons [public? grammar]
+(defn remove-singletons [protected? grammar]
   (let [singletons (into {}
                      (for [[k v] grammar
-                           :when (and (not (public? k)) (= 1 (count v)) 
+                           :when (and (not (protected? k)) (= 1 (count v)) 
                                    (= 1 (count (first v))))]
                        [k (ffirst v)]))
         singletons (into {}
