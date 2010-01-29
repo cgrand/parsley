@@ -94,7 +94,9 @@
 (defn init-state [grammar k]
   (for [rhs (grammar k)] [k (measure rhs) rhs]))
 
-(defn follow [rule] (-> rule (nth 2) first (or {:follow1 [[*min* *max*]]})))
+(def *free-follow* {:follow1 #{[#{[*min* *max*]}]}})
+
+(defn follow [rule] (-> rule (nth 2) first (or *free-follow*)))
 
 (defn close [init-states state]
   (fix-point (fn [state]
@@ -104,13 +106,20 @@
 (defn- assoc-multi [map k val]
   (assoc map k (conj (map k #{}) val)))
 
+(defn- follow1-map [state]
+  (let [shift-prods (filter (comp set? follow) state)]
+    (-> (for [[k n [terminal & etc]] shift-prods 
+              :let [p #{[k n etc]}], r terminal]
+          [r p]) 
+      rmap compact-rangemap)))
+
+(defn- follow1-set [close prods]
+  (let [dummy-state (map (partial conj [nil nil]) prods)]
+    (-> dummy-state close follow1-map keys (doto prn))))
+
 (defn transitions [close tags state]
   (let [close-transitions #(into % (for [[k state] %] [k (close state)]))
-        shift-prods (filter (comp set? follow) state)
-        shifts (-> (rmap (for [[k n [terminal & etc]] shift-prods 
-                               :let [p #{[k n etc]}], r terminal]
-                           [r p]))
-                 compact-rangemap close-transitions)
+        shifts (-> state follow1-map close-transitions)
         goto-prods (filter (comp keyword? follow) state)
         gotos (close-transitions
                 (reduce (fn [gotos [k n [non-terminal & etc]]]
@@ -118,8 +127,13 @@
                      {} goto-prods))
         reduce-prods (filter (comp map? follow) state)
         reduces (-> (for [[k n :as prod] reduce-prods
-                          :let [{follow-set :follow1} (follow prod)]
-                          char-range follow-set] 
+                          :let [{follow-prods :follow1
+                                 complement? :complement} (follow prod)
+                                char-ranges (follow1-set close follow-prods)
+                                char-ranges (if complement?
+                                              (complement-ranges char-ranges) 
+                                              char-ranges)]
+                          char-range (doto char-ranges (prn "..."))] 
                         [char-range #{[k (tags k) n]}])
                   rmap compact-rangemap)]
     [shifts reduces gotos]))
@@ -239,9 +253,10 @@
          stack+data))))
 
 (comment
+(require '[net.cgrand.enlive-html :as e]) 
 (defn prd [stacks]
   (doseq [[_ _ data] stacks]
-    (println (->> data (make-node nil) e/emit* (apply str)))))
+    (prn (->> data (make-node nil) e/emit* (apply str)))))
 
 (def g {:S #{[:E $]}, 
         :E #{[:E (ranges \* \+) :B] 
@@ -279,13 +294,13 @@
 (def ttable (first table))
 (def sop [[[(second table)] [] []]])
 (-> sop (step ttable "aab") (step1 ttable -1) prd)
-"<A>a</A><AB><AB>a</AB>b</AB>
-<A>a<A>a</A></A><AB>b</AB>"
+"<A>a</A><AB><AB>a</AB>b</AB>"
+"<A>a<A>a</A></A><AB>b</AB>"
 
 ;; with follow(1) restrictions 
 (def g {:S #{[:A :AB $]},
         :A #{[(ranges \a) :A] 
-             [(ranges \a) {:follow1 (ranges \b)}]},
+             [(ranges \a) {:follow1 #{[(ranges \b)]}}]},
         :AB #{[:AB (ranges \a \b)]
               [(ranges \a \b)]}})
 (def table (lr-table g :S identity))

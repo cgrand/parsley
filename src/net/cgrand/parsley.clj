@@ -93,22 +93,25 @@
 (defmacro token [& specs]
   `[:token (spec ~@specs)])
 
-(defmacro ?= [x]
-  [:follow x])
+(defmacro ?= [& specs]
+  `[:follow (spec ~@specs)])
 
-(defmacro ?! [x]
-  [:not-follow x])
+(defmacro ?! [& specs]
+  `[:not-follow (spec ~@specs)])
 
 ;; 2. collect new rules
 (defn- genkey [s]
   (-> s gensym keyword))
 
 (def *current-rule*)
+
+(defn- genderived-key [s]
+  (genkey (str (if *current-rule* (name *current-rule*) "") s)))
+
 (defmulti collect-rules #(when (vector? %2) (first %2)))
 
 (defmethod collect-rules :repeat+ [token-mode v]
-  (let [kw (genkey (str (if *current-rule* (name *current-rule*) "") 
-                     "_repeat+_"))
+  (let [kw (genderived-key "_repeat+_")
         rule (second v)]
     (cons [v kw [(if token-mode :token :seq) [:alt [:seq kw rule] rule]]] 
       (collect-rules token-mode rule))))   
@@ -154,11 +157,12 @@
 (defmethod develop-alts :token [rewrites _ v]
   (develop-alts rewrites nil (second v)))
   
-(defmethod develop-alts :follow [rewrites _ v]
-  [[{:follow1 (apply core/ranges (second v))}]]) 
+(defmethod develop-alts :follow [rewrites space v]
+  [[{:follow1 (set (develop-alts rewrites space (second v)))}]]) 
 
-(defmethod develop-alts :not-follow [rewrites _ v]
-  [[{:follow1 (core/complement-ranges (apply core/ranges (second v)))}]]) 
+(defmethod develop-alts :not-follow [rewrites space v]
+  [[{:follow1 (set (develop-alts rewrites space (second v)))
+     :complement true}]]) 
 
 (defmethod develop-alts :maybe-rewrite [rewrites _ x]
   [[(rewrites x x)]])
@@ -217,7 +221,10 @@
         singletons (into {}
                      (for [[k v] singletons]
                        [k (core/fix-point #(singletons % %) v)]))
-        rewrite-prod (fn [prod] (map #(singletons % %) prod))]
+        rewrite-prod (fn this [prod] 
+                       (map #(if-let [follow-set (:follow1 %)]
+                               (assoc % :follow1 (set (map this follow-set)))  
+                               (singletons % %)) prod))]
     (into {}
       (for [[k prods] grammar :when (not (singletons k))]
         [k (set (map rewrite-prod prods))]))))
@@ -267,17 +274,18 @@
       ~public-rulenames]))) 
 
 (comment
-(def table (apply core/lr-table 
+(def table (apply lr-table 
              (grammar {:main [:A*]
                        :space [" "*]}
-               :atom (token {\a \z, \A \Z, \0 \9}+ (?! {\a \z, \A \Z, \0 \9}))
+               :letter- {\a \z, \A \Z, \0 \9}
+               :atom (token :letter+ (?! :letter))
                :A #{:atom [\( :A* \)]})))
 (def ttable (first table))
 (def sop [[[(second table)] [] [] nil]])
-(-> sop (core/step ttable "cccccc") (core/step1 ttable -1) core/prd)
+(-> sop (step ttable "cccccc") (step1 ttable -1) prd)
 "'<A><atom>cccccc</atom></A>"
-(-> sop (core/step ttable "aa aa") (core/step1 ttable -1) core/prd)
+(-> sop (step ttable "aa aa") (step1 ttable -1) prd)
 "<A><atom>aa</atom></A> <A><atom>aa</atom></A>"
-(-> sop (core/step ttable "(mapcat (partial collectrules tokenmode) (rest v))") (core/step1 ttable -1) core/prd)
+(-> sop (step ttable "(mapcat (partial collectrules tokenmode) (rest v))") (step1 ttable -1) prd)
 "<A>(<A><atom>mapcat</atom></A> <A>(<A><atom>partial</atom></A> <A><atom>collectrules</atom></A> <A><atom>tokenmode</atom></A>)</A> <A>(<A><atom>rest</atom></A> <A><atom>v</atom></A>)</A>)</A>"
 )
