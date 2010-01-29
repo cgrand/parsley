@@ -120,7 +120,7 @@
   (mapcat (partial collect-rules token-mode) (rest v)))
   
 (defmethod collect-rules :token [token-mode v]
-  (mapcat (partial collect-rules true) (second v)))
+  (collect-rules true (second v)))
   
 (defmethod collect-rules :default [token-mode v]
   nil)
