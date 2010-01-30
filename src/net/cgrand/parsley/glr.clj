@@ -144,7 +144,7 @@
 (defn- to-states [[shifts _ gotos]]
   (concat (vals shifts) (vals gotos)))
      
-(defn lr-table [grammar start tags]
+(defn lr-table* [grammar start tags]
   (let [init (partial init-state grammar)
         close (partial close init)
         state0 (-> start init close)
@@ -158,6 +158,17 @@
            (recur table todo))
          table))
      state0]))
+     
+(defn number-states [[table s0]]
+  (let [mapping (zipmap (keys table) (iterate inc 0))
+        renum (fn [m] (reduce #(update-in %1 [%2] mapping) m (keys m)))]
+    [(into []
+       (for [[shifts reduces gotos] (vals table)]
+         [(renum shifts) reduces (renum gotos)]))
+     (mapping s0)]))
+
+(defn lr-table [grammar start tags]
+  (number-states (lr-table* grammar start tags)))
 
 (defn peekN [stack n]
   (let [s (- (count stack) n)]
