@@ -115,7 +115,7 @@
 
 (defn- follow1-set [close prods]
   (let [dummy-state (map (partial conj [nil nil]) prods)]
-    (-> dummy-state close follow1-map keys (doto prn))))
+    (-> dummy-state close follow1-map keys)))
 
 (defn transitions [close tags state]
   (let [close-transitions #(into % (for [[k state] %] [k (close state)]))
@@ -133,7 +133,7 @@
                                 char-ranges (if complement?
                                               (complement-ranges char-ranges) 
                                               char-ranges)]
-                          char-range (doto char-ranges (prn "..."))] 
+                          char-range char-ranges] 
                         [char-range #{[k (tags k) n]}])
                   rmap compact-rangemap)]
     [shifts reduces gotos]))
