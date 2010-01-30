@@ -67,9 +67,12 @@
 (defn compact-rangemap [rangemap]
   (rmap (compact-rvs rangemap)))
 
+(def codepoint int) ; just to remove the hint
+
 (defn ranges [& xs]
-  (set (for [x xs] (if (or (char? x) (number? x)) [(int x) (inc (int x))] 
-                     (let [[l h] x] [(int l) (inc (int h))])))))
+  (set (for [x xs] (if (or (char? x) (number? x)) 
+                     [(codepoint x) (inc (codepoint x))] 
+                     (let [[l h] x] [(codepoint l) (inc (codepoint h))])))))
 
 (defn complement-ranges [s]
   (let [m (-> empty-rangemap
