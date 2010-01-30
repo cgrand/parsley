@@ -161,11 +161,11 @@
      
 (defn number-states [[table s0]]
   (let [mapping (zipmap (keys table) (iterate inc 0))
-        renum (fn [m] (reduce #(update-in %1 [%2] mapping) m (keys m)))]
-    [(into []
-       (for [[shifts reduces gotos] (vals table)]
-         [(renum shifts) reduces (renum gotos)]))
-     (mapping s0)]))
+        renum (fn [m] (reduce #(update-in %1 [%2] mapping) m (keys m)))
+        a (to-array
+            (for [[shifts reduces gotos] (vals table)]
+              [(renum shifts) reduces (renum gotos)]))]
+    [#(when % (aget a (int %))) (mapping s0)]))
 
 (defn lr-table [grammar start tags]
   (number-states (lr-table* grammar start tags)))
@@ -215,7 +215,7 @@
 (defn- reduce-prod [[stack unreducible-data data src] action table]
   (let [[sym tag n] action
         stack (popN stack n)
-        gotos (-> table (get (peek stack)) (nth 2))
+        gotos (-> (peek stack) table (nth 2))
         new-state (get gotos sym)
         stack (conj stack new-state)]
     (if (>= (count data) n)
