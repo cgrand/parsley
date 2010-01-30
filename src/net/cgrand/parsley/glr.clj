@@ -149,14 +149,15 @@
         close (partial close init)
         state0 (-> start init close)
         transitions (partial transitions close tags)]
-    [(fix-point 
-       (fn [table]
-         (let [states (mapcat to-states (vals table))
-               has-no-transitions? #(when-not (table %) %)] 
-           (if-let [state (some has-no-transitions? states)]
-             (assoc table state (transitions state))
-             table))) {state0 (transitions state0)})
-     state0])) 
+    [(loop [table {} todo #{state0}]
+       (if-let [[state] (seq todo)]
+         (let [transition (transitions state)
+               table (assoc table state transition)
+               new-states (remove table (to-states transition))
+               todo (-> todo (disj state) (into new-states))]
+           (recur table todo))
+         table))
+     state0]))
 
 (defn peekN [stack n]
   (let [s (- (count stack) n)]
