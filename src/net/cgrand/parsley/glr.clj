@@ -32,7 +32,7 @@
                              (assoc [ll l] vs)
                              (assoc [l hl] vs))))
                      rangemap)
-          rangemap (or (when-let [[[lh hh :as high] vs] (find rangemap (one h))]
+          rangemap (or (when-let [[[lh hh :as high] vs] (find rangemap (one (dec h)))]
                          (when (< h hh)
                            (-> rangemap 
                              (dissoc high)
