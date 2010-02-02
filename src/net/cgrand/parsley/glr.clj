@@ -165,10 +165,24 @@
         a (to-array
             (for [[shifts reduces gotos] (vals table)]
               [(renum shifts) reduces (renum gotos)]))]
-    [#(when % (aget a (int %))) (mapping s0)]))
+    [#(when % (aget a (int %))) (mapping s0) (count a)]))
+
+(defn- ascii-fn [rangemap]
+  (let [a (to-array (map #(rangemap (one %)) (range 0 128)))]
+    (fn [i]
+      (let [i (int i)]
+        (if (and (> 128 i) (<= 0 i))
+          (aget a i)
+          (rangemap (one i)))))))
+
+(defn index-ascii [[table s0 max]]
+  (let [a (to-array (for [i (range 0 max) 
+                          :let [[shifts reduces gotos] (table i)]]
+                      [(ascii-fn shifts) (ascii-fn reduces) gotos]))]
+    [#(when % (aget a (int %))) s0])) 
 
 (defn lr-table [grammar start tags]
-  (number-states (lr-table* grammar start tags)))
+  (-> (lr-table* grammar start tags) number-states index-ascii))
 
 (defn peekN [stack n]
   (let [s (- (count stack) n)]
@@ -224,17 +238,16 @@
       [stack (conj unreducible-data [data action]) [] src])))
 
 (defn step1 [stacks table c]
-  (let [crange (one (int c))]
-    (set
-      (mapcat
-        (fn single-step1 [[stack :as stack+data]]
-          (when-let [[shifts reduces] (table (peek stack))]
-            (let [reds (mapcat #(single-step1 (reduce-prod stack+data % table))
-                         (reduces crange))]
-              (if-let [next-state (shifts crange)]
-                (cons (shift stack+data c next-state) reds)
-                reds))))
-        stacks))))
+  (set
+    (mapcat
+      (fn single-step1 [[stack :as stack+data]]
+        (when-let [[shifts reduces] (table (peek stack))]
+          (let [reds (mapcat #(single-step1 (reduce-prod stack+data % table))
+                       (reduces c))]
+            (if-let [next-state (shifts c)]
+              (cons (shift stack+data c next-state) reds)
+              reds))))
+      stacks)))
 
 (defn step [stack table s]
   (reduce #(step1 %1 table %2) stack s)) 
