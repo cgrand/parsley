@@ -90,6 +90,7 @@
 (defmacro spec [& xs]
   (compile-spec (vec xs)))
 
+;; DSL utils
 (defmacro token [& specs]
   `[:token (spec ~@specs)])
 
@@ -98,6 +99,13 @@
 
 (defmacro ?! [& specs]
   `[:not-follow (spec ~@specs)])
+
+(defn one-of [s]
+  (into [:alt] s))
+
+(def any-char {0 core/*max*})
+
+(def $ {-1 0})
 
 ;; 2. collect new rules
 (defn- genkey [s]
