@@ -184,90 +184,140 @@
 (defn lr-table [grammar start tags]
   (-> (lr-table* grammar start tags) number-states index-ascii))
 
-(defn peekN [stack n]
-  (let [s (- (count stack) n)]
-    (cond 
-      (pos? s) (subvec stack s)
-      (zero? s) stack)))
-
 (defn popN [stack n]
-  (let [s (- (count stack) n)]
-    (cond 
-      (pos? s) (subvec stack 0 s)
-      (zero? s) [])))
+  (if (pos? n)
+    (recur (pop stack) (dec n))
+    stack))
 
-(defn- merge-nodes [nodes]
-  (let [[seed nodes] (if (vector? (first nodes)) 
-                       [(first nodes) (rest nodes)]
-                       [[] nodes])]
-    (reduce (fn self [nodes node]
-              (cond
-                (vector? node)
-                  (let [top (peek nodes)]
-                    (if (and (string? top) (string? (first node)))
-                      (-> nodes pop (conj (str top (first node)))
-                        (into (rest node)))
-                      (into nodes node)))
-                (char? node)
-                  (let [top (peek nodes)]
-                    (if (string? top)
-                      (-> nodes pop (conj (str top node)))
-                      (conj nodes (str node))))
-                :else (conj nodes node))) seed nodes)))
+;; optimize "step" for:
+;; * regular runs eg [a-z]+
+;; * deterministic parts
+;; * minimize construction
+;;
+;; To optimize (right) regular parts I must keep the last reduced substring
+;; around.
+;; To optimize deterministic part: process 1 "thread" on a bunch of chars at 
+;; once rather the other way around
 
-(defn make-node [tag nodes]
-  (let [content (merge-nodes nodes)] 
-    (if tag
-      {:tag tag :content content}
-      content)))
+(defmacro shift-with {:private true} 
+ [f shift-state stack state events shift-count cs]
+  `(~f ~shift-state (conj ~stack ~state) ~events ~cs (inc ~shift-count)))
 
-(defn- shift [[stack unreducible-data data src :as stack+data] c new-state]
-  (if (= *eof* c) 
-    stack+data
-    [(conj stack new-state) unreducible-data (conj data c) src]))
+(defmacro reduce-with {:private true} 
+ [f action stack table events shift-count s]
+  `(let [[sym# tag# n# :as action#] ~action
+         stack# (popN ~stack (dec n#))
+         top-state# (peek stack#)
+         goto-state# (-> stack# peek ~table (nth 2) (get sym#))
+         shift-count# ~shift-count]
+     (~f goto-state# stack# (if (pos? shift-count#)
+                              (conj ~events shift-count# action#)
+                              (conj ~events action#)) ~s 0)))
 
-(defn- reduce-prod [[stack unreducible-data data src] action table]
-  (let [[sym tag n] action
-        stack (popN stack n)
-        gotos (-> (peek stack) table (nth 2))
-        new-state (get gotos sym)
-        stack (conj stack new-state)]
-    (if (>= (count data) n)
-      [stack unreducible-data 
-        (conj (popN data n) (make-node tag (peekN data n))) src] 
-      [stack (conj unreducible-data [data action]) [] src])))
+(defn step1 [init-stack events table s]
+  ((fn step1* [state stack events s shift-count]
+     (if-let [[c & cs] s]
+       (let [[shifts reduces] (table state)
+             shift-state (shifts c)
+             actions (reduces c)]
+         (cond
+           (and shift-state (seq actions)) ; shift/reduce(s) conflict
+             (concat (shift-with step1* shift-state stack state events shift-count cs) 
+               (mapcat #(reduce-with step1* % stack table events shift-count s) actions))
+           (next actions) ; reduce/reduce conflict
+             (mapcat #(reduce-with step1* % stack table events shift-count s) actions)
+           shift-state ; deterministic shift
+             (shift-with recur shift-state stack state events shift-count cs)
+           :deterministic-reduce
+             (reduce-with recur (first actions) stack table events shift-count s)))
+       [[(conj stack state) 
+         (if (pos? shift-count) (conj events shift-count) events)
+         init-stack]]))
+     (peek init-stack) (pop init-stack) events (seq s) 0))
 
-(defn step1 [stacks table c]
-  (set
-    (mapcat
-      (fn single-step1 [[stack :as stack+data]]
-        (when-let [[shifts reduces] (table (peek stack))]
-          (let [reds (mapcat #(single-step1 (reduce-prod stack+data % table))
-                       (reduces c))]
-            (if-let [next-state (shifts c)]
-              (cons (shift stack+data c next-state) reds)
-              reds))))
-      stacks)))
+(defn step [threads table s]
+  (mapcat #(step1 (first %) (second %) table s) threads))
 
-(defn step [stack table s]
-  (reduce #(step1 %1 table %2) stack s)) 
+(defn reset [threads] 
+  (map (fn [[stack]] [stack []]) threads))
 
-(defn reset [stacks] (map (fn [[stack]] [stack [] [] stack]) stacks))
+(defn- longest-string [events from n]
+  (if-let [[event & etc] events]
+    (if (number? event)
+      (cond 
+        (> event n)
+          [(cons (- event n) etc) (- from n) 0]
+        (= event n)
+          [etc (- from n) 0]
+        :else
+          (recur etc (- from event) (- n event)))
+      (let [[sym tag m] event]
+        (if tag
+          [events from n]
+          (recur etc from (+ (dec n) m)))))
+    [nil from n]))
+
+(defn read-content [s events n to]
+  (let [[events from n] (longest-string events to n)
+        text (when (< from to) (subs s from to))]
+    (if (or (zero? n) (nil? events))
+      [events from n (if text [text] [])]
+      (let [[[sym tag m :as event] & events] events
+            [events from m maybe-nodes] (read-content s events m from)]
+        (if (pos? m)
+          (let [maybe-nodes (conj maybe-nodes event)
+                maybe-nodes (if text (conj maybe-nodes text) maybe-nodes)]
+            [nil 0 1 maybe-nodes])
+          (let [node {:tag tag :content maybe-nodes}
+                [events from n maybe-nodes] 
+                  (read-content s events (dec n) from)
+                maybe-nodes (conj maybe-nodes node)
+                maybe-nodes (if text (conj maybe-nodes text) maybe-nodes)]
+            [events from n maybe-nodes]))))))
+            
+(defn read-events [events s]
+  (let [[events from n maybe-nodes] (read-content s (rseq events) 
+                                      Integer/MAX_VALUE (count s))]
+    maybe-nodes))
 
 (defn stitchable? [a b]
-  (every? (comp (set (map #(nth % 3) b)) first) a)) 
+  (every? (comp (set (map #(nth % 2) b)) first) a)) 
 
-(defn- stitch-shift [[stack unreducible-data data src] more-data]
-  [stack unreducible-data (into data more-data)]) 
+(defn- data-split [data n]
+  (loop [rem data take nil n n]
+    (if (zero? n) 
+      [rem take]
+      (when-let [x (peek rem)]
+        (cond
+          (vector? x)
+            nil
+          (string? x)
+            (let [m (count x)]
+              (if (<= m n)
+                (recur (pop rem) (cons x take) (dec n))
+                [(conj (pop rem) (subs x 0 (- m n)))
+                 (cons (subs x (- m n)) take)]))
+          :else
+            (recur (pop rem) (cons x take) (dec n)))))))
 
-(defn- stitch-reduce-prod [[stack unreducible-data data src] action]
-  (let [[sym tag n] action]
-    (if (>= (count data) n)
-      [stack unreducible-data 
-        (conj (popN data n) (make-node tag (peekN data n))) src]
-      [stack (conj unreducible-data [data action]) [] src])))
+(defn- data-conj [a x]
+  (if (and (string? x) (string? (pop a)))
+    (conj (pop a) (str (peek a) x))
+    (conj a x)))
 
-(defn stitch [a b]
+(defn- stitch-data [a b]
+  (loop [a a b (seq b)]
+    (if-let [[x & etc] b]
+      (if (vector? x)
+        (let [[sym tag n] x]
+          (if-let [[a content] (data-split a n)]
+            (recur (conj a {:tag tag :content content}) etc)
+            (into a b)))
+        (recur (data-conj a x) etc))
+      a)))
+
+;; TODO
+#_(defn stitch [a b]
   (set
     (for [[stack-a unred-a data-a src-a :as sa] a
           [stack-b unred-b data-b src-b :as sb] b
@@ -284,7 +334,7 @@
 (require '[net.cgrand.enlive-html :as e]) 
 (defn prd [stacks]
   (doseq [[_ _ data] stacks]
-    (prn (->> data (make-node nil) e/emit* (apply str)))))
+    (prn (->> data (core/make-node nil) e/emit* (apply str)))))
 
 (def g {:S #{[:E $]}, 
         :E #{[:E (ranges \* \+) :B] 
