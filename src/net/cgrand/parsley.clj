@@ -197,45 +197,66 @@
   [(into {}
      (for [[k prods] grammar]
        [k (set (remove empty-prod? prods))]))
-   (set
+   (into {}
      (for [[k prods] grammar
            :when (some empty-prod? prods)]
-       k))])
+       [k [() [k]]]))])
 
-(defn inline-empty-prods* [grammar]
+(defn- inline-prods 
+ ([prods replacement-map]
+  (inline-prods prods replacement-map #{}))
+ ([prods replacement-map collapsable?]
+  (letfn [(inline1 [prod]
+            (if-let [[x & xs] (seq prod)]
+              (for [a (if (map? x)
+                        [[(update-in x [:follow1] inline*)]]  
+                        (replacement-map x [[x]])) 
+                    b (inline1 xs)]
+                (if (and (collapsable? (last a)) (collapsable? (first b)))
+                  (concat a (rest b))
+                  (concat a b)))
+              [()]))
+          (inline* [prods]
+            (mapcat inline1 prods))]
+    (inline* prods))))
+
+(defn inline-empty-prods* [grammar space]
   (let [[grammar empty-prods] (split-empty-prods grammar)]
     (into {}
       (for [[k prods] grammar]
-        [k (-> (set (mapcat 
-                 (fn [prod] 
-                   (reduce (fn [prods x]
-                             (let [xprods (map (partial cons x) prods)]
-                               (if (and (empty-prods x) (not= k x))
-                                 (concat prods xprods)
-                                 xprods))) 
-                     [()] (rseq (vec prod)))) prods))
-             (disj [k]))]))))  
+        [k (-> prods (inline-prods empty-prods #{space}) set (disj [k]))]))))  
              
-(defn inline-empty-prods [grammar]
-  (core/fix-point inline-empty-prods* grammar)) 
+(defn inline-empty-prods [space grammar]
+  (core/fix-point #(inline-empty-prods* % space) grammar)) 
 
 ;; 5. remove-singletons
 (defn remove-singletons [protected? grammar]
-  (let [singletons (into {}
+  (let [non-singletons (into {}
                      (for [[k v] grammar
-                           :when (and (not (protected? k)) (= 1 (count v)) 
-                                   (= 1 (count (first v))))]
-                       [k (ffirst v)]))
+                           :let [sv (if (protected? k) 
+                                      v 
+                                      (remove #(= 1 (count %)) v))]
+                           :when (seq sv)]
+                       [k sv]))
+        ;; singletons is a map of keywords to seqs of 1-item vectors
         singletons (into {}
-                     (for [[k v] singletons]
-                       [k (core/fix-point #(singletons % %) v)]))
-        rewrite-prod (fn this [prod] 
-                       (map #(if-let [follow-set (:follow1 %)]
-                               (assoc % :follow1 (set (map this follow-set)))  
-                               (singletons % %)) prod))]
+                     (for [[k v] grammar
+                           :when (not (protected? k))
+                           :let [sv (filter #(= 1 (count %)) v)
+                                 sv (if (non-singletons k)
+                                      (cons [k] sv)
+                                      sv)]
+                           :when (seq sv)]
+                       [k sv]))
+        singletons (into {}
+                     (for [[k sv] singletons]
+                       [k (core/fix-point 
+                            (fn [sv] (set (mapcat #(singletons (first %) [%]) sv))) 
+                            sv)]))]
     (into {}
-      (for [[k prods] grammar :when (not (singletons k))]
-        [k (set (map rewrite-prod prods))]))))
+      (for [[k prods] non-singletons 
+            :let [prods (inline-prods prods singletons)]]
+        [k prods]))))
        
 
 
@@ -276,7 +297,7 @@
                     (assoc grammar space-name `(token ~(options-map :space)))
                     grammar)]
     `[(->> ~grammar collect-new-rules 
-         (apply develop ~space-name) inline-empty-prods 
+         (apply develop ~space-name) (inline-empty-prods ~space-name) 
          (remove-singletons (conj ~public-rulenames ~main-name)))
       ~main-name
       ~public-rulenames]))) 
