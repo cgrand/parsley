@@ -137,7 +137,7 @@
                                               (complement-ranges char-ranges) 
                                               char-ranges)]
                           char-range char-ranges] 
-                        [char-range #{[k (tags k) n]}])
+                        [char-range #{[k n (tags k)]}])
                   rmap compact-rangemap)]
     [shifts reduces gotos]))
 
@@ -158,31 +158,39 @@
            (recur table todo))
          table))
      state0]))
-     
-(defn number-states [[table s0]]
-  (let [mapping (zipmap (keys table) (iterate inc 0))
-        renum (fn [m] (reduce #(update-in %1 [%2] mapping) m (keys m)))
-        a (to-array
-            (for [[shifts reduces gotos] (vals table)]
-              [(renum shifts) reduces (renum gotos)]))]
-    [#(when % (aget a (int %))) (mapping s0) (count a)]))
 
-(defn- ascii-fn [rangemap]
-  (let [a (to-array (map #(rangemap (one %)) (range 0 128)))]
-    (fn [i]
-      (let [i (int i)]
-        (if (and (> 128 i) (<= 0 i))
-          (aget a i)
-          (rangemap (one i)))))))
+(defn number-syms-and-states [[table s0]]
+  (let [syms (set (mapcat (comp keys peek) (vals table)))
+        sym-nums (zipmap syms (iterate inc 0))
+        states (cons s0 (keys (dissoc table s0)))
+        state-nums (zipmap states (iterate inc 0))]
+    (vec 
+      (for [[shifts reduces gotos] (map table states)]
+        [(into shifts (for [[k v] shifts] 
+                        [k (state-nums v)]))
+         (into reduces (for [[k actions] reduces]
+                         [k (for [[sym n tag] actions] 
+                              [(sym-nums sym) n tag])]))
+         (vec (map (comp state-nums gotos) syms))]))))
+        
+(defn- fast-row [[shifts reduces gotos]]
+  (let [cs (map one (range 0 128))
+        ss (map shifts cs)
+        rs (map reduces cs)]
+    [(int-array (map #(or (when (empty? %2) %1) -1) ss rs))
+     (to-array (map #(when-not (or %1 (next %2)) (first %2)) ss rs))
+     (int-array (map #(or % -1) gotos))]))
 
-(defn index-ascii [[table s0 max]]
-  (let [a (to-array (for [i (range 0 max) 
-                          :let [[shifts reduces gotos] (table i)]]
-                      [(ascii-fn shifts) (ascii-fn reduces) gotos]))]
-    [#(when % (aget a (int %))) s0])) 
+(defn split-table [table]
+  (let [fast-rows (map fast-row table)]
+    [(to-array (map first fast-rows))
+     (to-array (map second fast-rows))
+     (to-array (map peek fast-rows))
+     (to-array (map first table))
+     (to-array (map second table))]))
 
 (defn lr-table [grammar start tags]
-  (-> (lr-table* grammar start tags) number-states index-ascii))
+  (-> (lr-table* grammar start tags) number-syms-and-states split-table))
 
 (defn popN [stack n]
   (if (pos? n)
@@ -199,44 +207,63 @@
 ;; To optimize deterministic part: process 1 "thread" on a bunch of chars at 
 ;; once rather the other way around
 
-(defmacro shift-with {:private true} 
- [f shift-state stack state events shift-count cs]
-  `(~f ~shift-state (conj ~stack ~state) ~events ~cs (inc ~shift-count)))
+(defmacro shift-with {:private true} [f & etc]
+  (concat [f] '(shift-state (conj stack state) events shift-i) etc))
 
-(defmacro reduce-with {:private true} 
- [f action stack table events shift-count s]
-  `(let [[sym# tag# n# :as action#] ~action
-         stack# (popN ~stack (dec n#))
-         top-state# (peek stack#)
-         goto-state# (-> stack# peek ~table (nth 2) (get sym#))
-         shift-count# ~shift-count]
-     (~f goto-state# stack# (if (pos? shift-count#)
-                              (conj ~events shift-count# action#)
-                              (conj ~events action#)) ~s 0)))
+(defmacro slow-path {:private true} []
+  '(step1* state stack events shift-i i (one c)))
 
-(defn step1 [init-stack events table s]
-  ((fn step1* [state stack events s shift-count]
-     (if-let [[c & cs] s]
-       (let [[shifts reduces] (table state)
-             shift-state (shifts c)
-             actions (reduces c)]
-         (cond
-           (and shift-state (seq actions)) ; shift/reduce(s) conflict
-             (concat (shift-with step1* shift-state stack state events shift-count cs) 
-               (mapcat #(reduce-with step1* % stack table events shift-count s) actions))
-           (next actions) ; reduce/reduce conflict
-             (mapcat #(reduce-with step1* % stack table events shift-count s) actions)
-           shift-state ; deterministic shift
-             (shift-with recur shift-state stack state events shift-count cs)
-           :deterministic-reduce
-             (reduce-with recur (first actions) stack table events shift-count s)))
-       [[(conj stack state) 
-         (if (pos? shift-count) (conj events shift-count) events)
-         init-stack]]))
-     (peek init-stack) (pop init-stack) events (seq s) 0))
-
-(defn step [threads table s]
-  (mapcat #(step1 (first %) (second %) table s) threads))
+(defn step1 [init-stack events tables #^String s]
+  (let [[#^objects shifts #^objects reduces #^objects gotos 
+         #^objects shifts* #^objects reduces*] tables
+        n (int (count s))]
+    (letfn [(qstep1* [state stack events shift-i i]
+              (loop [state (int state) stack stack events events 
+                     shift-i (int shift-i) i (int i)]
+                 (if (> n i)
+                   (let [c (int (.charAt s i))]
+                     (if (> 128 c)
+                       (let [shift-state (-> shifts #^ints (aget state) 
+                                           (aget c))]
+                         (if (neg? shift-state)
+                           (if-let [action (-> reduces #^objects (aget state) 
+                                             (aget c))]
+                             (let [[sym n] action
+                                   stack (popN stack (dec n))
+                                   goto-state (-> gotos 
+                                                #^ints (aget (int (peek stack)))
+                                                (aget (int sym)))
+                                   events (if (< shift-i i )
+                                            (conj events (- i shift-i) action)
+                                            (conj events action))]
+                               (recur goto-state stack events i i))
+                             (slow-path))
+                           (shift-with recur (unchecked-inc i))))
+                       (slow-path)))
+                   [[(conj stack state) 
+                     (if (< shift-i i) (conj events (- i shift-i)) events)
+                     init-stack]])))
+            (step1* [state stack events shift-i i c]
+              (concat 
+                (when-let [shift-state (-> shifts* (aget (int state)) (get c))] 
+                  (shift-with qstep1* (inc i)))  
+                (mapcat 
+                  #(let [[sym n] %
+                         stack (popN stack (dec n))
+                         goto-state (-> gotos 
+                                      #^ints (aget (int (peek stack)))
+                                      (aget (int sym)))
+                         events (if (< shift-i i )
+                                  (conj events (- i shift-i) %)
+                                  (conj events %))]
+                     (step1* goto-state stack events i i c)) 
+                  (-> reduces* #^objects (aget (int state)) (get c)))))]
+      (if s
+        (qstep1* (peek init-stack) (pop init-stack) events 0 0)
+        (step1* (peek init-stack) (pop init-stack) events 0 0 (one -1))))))
+      
+(defn step [threads tables s]
+  (mapcat #(step1 (first %) (second %) tables s) threads))
 
 (defn reset [threads] 
   (map (fn [[stack]] [stack []]) threads))
@@ -251,7 +278,7 @@
           [etc (- from n) 0]
         :else
           (recur etc (- from event) (- n event)))
-      (let [[sym tag m] event]
+      (let [[sym m tag] event]
         (if tag
           [events from n]
           (recur etc from (+ (dec n) m)))))
@@ -262,7 +289,7 @@
         text (when (< from to) (subs s from to))]
     (if (or (zero? n) (nil? events))
       [events from n (if text [text] [])]
-      (let [[[sym tag m :as event] & events] events
+      (let [[[sym m tag :as event] & events] events
             [events from m maybe-nodes] (read-content s events m from)]
         (if (pos? m)
           (let [maybe-nodes (conj maybe-nodes event)
@@ -309,7 +336,7 @@
   (loop [a a b (seq b)]
     (if-let [[x & etc] b]
       (if (vector? x)
-        (let [[sym tag n] x]
+        (let [[sym n tag] x]
           (if-let [[a content] (data-split a n)]
             (recur (conj a {:tag tag :content content}) etc)
             (into a b)))
