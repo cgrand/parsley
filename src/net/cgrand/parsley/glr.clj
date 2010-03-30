@@ -207,6 +207,12 @@
 ;; To optimize deterministic part: process 1 "thread" on a bunch of chars at 
 ;; once rather the other way around
 
+(defn- remove-last-shift [[stack events]]
+  (let [s (peek events)]
+    (if (= s 1)
+      [stack (pop events)]
+      [stack (conj (pop events) (dec s))])))
+
 (defmacro shift-with {:private true} [f & etc]
   (concat [f] '(shift-state (conj stack state) events shift-i) etc))
 
@@ -260,11 +266,17 @@
                   (-> reduces* #^objects (aget (int state)) (get c)))))]
       (if s
         (qstep1* (peek init-stack) (pop init-stack) events 0 0)
-        (step1* (peek init-stack) (pop init-stack) events 0 0 (one -1))))))
+        (->>
+          (step1* (peek init-stack) (pop init-stack) events 0 0 (one *eof*))
+          (map remove-last-shift))))))
       
-(defn step [threads tables s]
+(defn step
+ "Advance all the threads by parsing the chunk s. When s is nil, it means EOF."
+ [threads tables s]
   (mapcat #(step1 (first %) (second %) tables s) threads))
 
+
+;; 
 (defn reset [threads] 
   (map (fn [[stack]] [stack []]) threads))
 
