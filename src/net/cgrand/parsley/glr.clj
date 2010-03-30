@@ -269,27 +269,30 @@
   (map (fn [[stack]] [stack []]) threads))
 
 (defn- longest-string [events from n]
-  (if-let [[event & etc] events]
-    (if (number? event)
-      (cond 
-        (> event n)
-          [(cons (- event n) etc) (- from n) 0]
-        (= event n)
-          [etc (- from n) 0]
-        :else
-          (recur etc (- from event) (- n event)))
-      (let [[sym m tag] event]
-        (if tag
-          [events from n]
-          (recur etc from (+ (dec n) m)))))
-    [nil from n]))
+  (let [event (peek events)
+        etc (when event (pop events))]
+    (if event
+      (if (number? event)
+        (cond 
+          (> event n)
+            [(conj etc (- event n)) (- from n) 0]
+          (= event n)
+            [etc (- from n) 0]
+          :else
+            (recur etc (- from event) (- n event)))
+        (let [[sym m tag] event]
+          (if tag
+            [events from n]
+            (recur etc from (+ (dec n) m)))))
+      [nil from n])))
 
 (defn read-content [s events n to]
   (let [[events from n] (longest-string events to n)
         text (when (< from to) (subs s from to))]
-    (if (or (zero? n) (nil? events))
+    (if (or (zero? n) (empty? events))
       [events from n (if text [text] [])]
-      (let [[[sym m tag :as event] & events] events
+      (let [[sym m tag :as event] (peek events)
+            events (pop events)
             [events from m maybe-nodes] (read-content s events m from)]
         (if (pos? m)
           (let [maybe-nodes (conj maybe-nodes event)
@@ -303,7 +306,7 @@
             [events from n maybe-nodes]))))))
             
 (defn read-events [events s]
-  (let [[events from n maybe-nodes] (read-content s (rseq events) 
+  (let [[events from n maybe-nodes] (read-content s events 
                                       Integer/MAX_VALUE (count s))]
     maybe-nodes))
 
