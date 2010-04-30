@@ -1,4 +1,5 @@
-(ns net.cgrand.parsley.glr)
+(ns net.cgrand.parsley.glr
+  "A SGLR-inspired parser.")
 
 ;; a grammar is a map of keywords to sets of vector of keywords and terminals
 ;; empty productions are NOT allowed
@@ -10,6 +11,8 @@
 (def *max* Integer/MAX_VALUE)
 (def *eof* -1)
 
+
+;; rangemaps
 (defn compare-ranges 
  "Compare two disjoint ranges."
  [[la ha] [lb hb]]
@@ -82,7 +85,7 @@
 
 (def $ (ranges *eof*))
 
-
+;; table computations
 (defn measure [rhs]
   (if (map? (last rhs)) 
     (dec (count rhs))
@@ -192,12 +195,9 @@
 (defn lr-table [grammar start tags]
   (-> (lr-table* grammar start tags) number-syms-and-states split-table))
 
-(defn popN [stack n]
-  (if (pos? n)
-    (recur (pop stack) (dec n))
-    stack))
 
-;; optimize "step" for:
+;; the step function 
+;; I tried to optimize "step" for:
 ;; * regular runs eg [a-z]+
 ;; * deterministic parts
 ;; * minimize construction
@@ -206,6 +206,11 @@
 ;; around.
 ;; To optimize deterministic part: process 1 "thread" on a bunch of chars at 
 ;; once rather the other way around
+
+(defn popN [stack n]
+  (if (pos? n)
+    (recur (pop stack) (dec n))
+    stack))
 
 (defn- remove-last-shift [[stack events]]
   (let [s (peek events)]
@@ -239,9 +244,10 @@
                                    goto-state (-> gotos 
                                                 #^ints (aget (int (peek stack)))
                                                 (aget (int sym)))
-                                   events (if (< shift-i i )
-                                            (conj events (- i shift-i) action)
-                                            (conj events action))]
+                                   events (let [len (- i shift-i)]
+                                            (if (pos? len)
+                                              (conj events len action)
+                                              (conj events action)))]
                                (recur goto-state stack events i i))
                              (slow-path))
                            (shift-with recur (unchecked-inc i))))
@@ -298,29 +304,51 @@
             (recur etc from (+ (dec n) m)))))
       [nil from n])))
 
-(defn read-content [s events n to]
-  (let [[events from n] (longest-string events to n)
-        text (when (< from to) (subs s from to))]
-    (if (or (zero? n) (empty? events))
-      [events from n (if text [text] [])]
-      (let [[sym m tag :as event] (peek events)
-            events (pop events)
-            [events from m maybe-nodes] (read-content s events m from)]
-        (if (pos? m)
-          (let [maybe-nodes (conj maybe-nodes event)
-                maybe-nodes (if text (conj maybe-nodes text) maybe-nodes)]
-            [nil 0 1 maybe-nodes])
-          (let [node {:tag tag :content maybe-nodes}
-                [events from n maybe-nodes] 
-                  (read-content s events (dec n) from)
-                maybe-nodes (conj maybe-nodes node)
-                maybe-nodes (if text (conj maybe-nodes text) maybe-nodes)]
-            [events from n maybe-nodes]))))))
-            
+(defn- count-nodes [nodes]
+  (reduce #(if (string? %2) (+ %1 (count %2)) (inc %1)) 0 nodes))
+
+(defn fold-nodes [tag s events n]
+  (loop [events events n (int n) i (count s) j (count s) folded ()]
+    (cond
+      (zero? n)
+        (let [folded (if (< i j) (conj folded (subs s i j)) folded)]
+          [events folded i])
+      (empty? events)
+        (let [folded (if (< i j) (conj folded (subs s i j)) folded)
+              m (count-nodes folded)]
+          [nil (conj (vec folded) [nil (+ n m) tag])])
+      :else
+        (let [event (peek events)
+              etc (pop events)]
+          (if (number? event)
+            (let [event (int event)]
+              (if (< event n)
+                (recur etc (- n event) (- i event) j folded)
+                (recur (conj etc (- event n)) (int 0) (- i n) j folded)))
+            (let [[_ N etag] event]
+              (if (or etag (= ::top-level tag))
+                (let [[rem nodes new-i] (fold-nodes etag (subs s 0 i) etc N)
+                      folded (if (< i j) (conj folded (subs s i j)) folded)]
+                  (if new-i
+                    (recur rem (dec n) (int new-i) (int new-i) 
+                      (conj folded {:tag etag :content nodes}))
+                    (recur nil (int (- n (count-nodes nodes))) (int 0) (int 0) (into nodes folded))))
+                (recur etc (int (+ (dec n) N)) i j folded))))))))
+
+(comment
+  (= (fold-nodes nil "hello" [1 [nil 2 :a]] 1)
+    [nil ["o" [nil 2 :a]]]) 
+  )
+
+
 (defn read-events [events s]
-  (let [[events from n maybe-nodes] (read-content s events 
-                                      Integer/MAX_VALUE (count s))]
-    maybe-nodes))
+  (let [[events nodes i] (fold-nodes ::top-level s events 1)]
+    (if i
+      (into (read-events events (subs s 0 i)) nodes)
+      (let [[_ x] (peek nodes)]
+        (if (= 1 x)
+          (pop nodes)
+          (conj (pop nodes) [nil (dec x) nil]))))))
 
 (defn stitchable? [a b]
   (every? (comp (set (map #(nth % 2) b)) first) a)) 

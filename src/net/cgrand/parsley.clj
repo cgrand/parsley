@@ -53,7 +53,7 @@
     
 ;; DSL support starts here
 
-;; grammar compilation 
+;; TODO: scratch that
 ;; once evaluated grammar consists of a map of keyword to:
 ;; * vectors (sequence)
 ;; * sets (alternatives)
@@ -306,7 +306,7 @@
 (def table (apply lr-table 
              (grammar {:main [:A*]
                        :space [" "*]}
-               :letter- {\a \z, \A \Z, \0 \9}
+               :letter- #{{\a \z, \A \Z, \0 \9} \-}
                :atom (token :letter+ (?! :letter))
                :A #{:atom [\( :A* \)]})))
 (def ttable (first table))
@@ -315,6 +315,6 @@
 "'<A><atom>cccccc</atom></A>"
 (-> sop (step ttable "aa aa") (step1 ttable -1) prd)
 "<A><atom>aa</atom></A> <A><atom>aa</atom></A>"
-(-> sop (step ttable "(mapcat (partial collectrules tokenmode) (rest v))") (step1 ttable -1) prd)
+(-> sop (step ttable "(mapcat (partial collect-rules tokenmode) (rest v))") (step1 ttable -1) prd)
 "<A>(<A><atom>mapcat</atom></A> <A>(<A><atom>partial</atom></A> <A><atom>collectrules</atom></A> <A><atom>tokenmode</atom></A>)</A> <A>(<A><atom>rest</atom></A> <A><atom>v</atom></A>)</A>)</A>"
 )

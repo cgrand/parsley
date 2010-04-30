@@ -33,29 +33,69 @@
 (defmethod str-op core/op-lookahead [[_ & ops]] (str "(with " (str-ops ops) ")"))
 (defmethod str-op core/op-negative-lookahead [[_ & ops]] (str "(but " (str-ops ops) ")"))
 
-(doseq [[_ _ x] (reduce step clojure-parser (take 10 selfs))] (println (str-ops x)))
+;(doseq [[_ _ x] (reduce step clojure-parser (take 10 selfs))] (println (str-ops x)))
 
 (defn copy [x] (-> (java.awt.Toolkit/getDefaultToolkit) .getSystemClipboard (.setContents (java.awt.datatransfer.StringSelection. (str x)) nil)))
 
 (defn str-cont [[_ _ cont]] (str-ops cont))
-  
+(defn str-conts [x] (map str-cont x))
+(defn prn-conts [xs]
+  (doseq [x xs] (println (str-cont x))))
 
-(def clojure-parser 
-  (grammar {:space #{:white-space :comment :discard}
-            :main [:expr* eof]}
+(require '[net.cgrand.parsley.glr :as core])
+(use 'net.cgrand.parsley :reload-all)
+
+(def sexp 
+  (grammar {:space :whitespace?
+            :main [:expr*]}
+    :expr- #{:atom :list :vector :set :map}
+    :atom (token {\a \z \A \Z \- \- \0 \9 \. \.}+ (?! {\a \z \A \Z \- \- \0 \9 \. \.}))
+    :list ["(" :expr* ")"]
+    :vector ["[" :expr* "]"]
+    :set ["#{" :expr* "}"]
+    :map ["{" :expr* "}"]
+    
+    :whitespace (token #{\space \tab \newline}+ (?! #{\space \tab \newline}))))  
+
+(def table (apply core/lr-table sexp))
+(def sop [[(list 0) () nil]])
+
+(defn bench[n]
+  (let [s "(defn fast-tables [table]
+  (let [fast-rows (map fast-row table)]
+    [(to-array (map first fast-rows))
+     (to-array (map second fast-rows))]))"
+        s (apply str (repeat n s))]
+    (println "parsing" (count s) "chars")
+    (time (-> sop (core/step table s) count))))
+
+(defn bench2[n]
+  (let [s "(defn fast-tables [table]
+  (let [fast-rows (map fast-row table)]
+    [(to-array (map first fast-rows))
+     (to-array (map second fast-rows))]))"
+        s (apply str (repeat n s))]
+    (println "parsing" (count s) "chars")
+    (time (-> sop (core/step table s) first second (core/read-events s)))))
+
+(-> sop (core/step table "hello"))
+
+(def g
+  (grammar {:space [#{:white-space #_:comment :discard}*]
+            :main [:expr*]}
 
     :terminating-macro- (one-of "\";']^`~()[]{}\\%")
     :macro- #{:terminating-macro (one-of "@#")}
     :space- (one-of " \t\n\r,")
-    :token-char- [(?! #{:terminating-macro :space}) any-char]
     
-    :white-space (token :space+)  
-    :comment (token #{";" "#!"} (not-one-of "\n")*) 
+    :token- (token {\a \z}+ (?= #{:terminating-macro :space $}))
+    :white-space (token :space+ (?! :space))  
+    ;:comment (token #{";" "#!"} (not-one-of "\n")*) 
     :discard ["#_" :expr]
     
     :expr #{:list :vector :map :set :fn 
             :meta :with-meta :quote :syntax-quote :unquote :unquote-splice
-            :regex :string :number :keyword :symbol :nil :boolean :char}
+            :regex :string :number :keyword :symbol #_:nil #_:boolean :char}
 
     :list ["(" :expr* ")"] 
     :vector ["[" :expr* "]"] 
@@ -72,10 +112,11 @@
     :deref ["@" :expr]
     :var ["#'" :expr]
 
-    :nil (token "nil" (?! :token-char))
-    :boolean (token #{"true" "false"} (?! :token-char))
+   ; :nil (token "nil" (?! :token-char))
+   ; :boolean (token #{"true" "false"} (?! :token-char))
     ;; todo: refine these terminals
     :char (token \\ any-char)
+#_(
     :namespace- (token (not-one-of "/" {\0 \9}) :token-char*? "/")
     :name- (token (not-one-of "/" {\0 \9}) [(?! "/") :token-char]*)
     :symbol (token  
@@ -84,11 +125,25 @@
                 ["/" (?! :token-char)]
                 ["clojure.core//" (?! :token-char)]
                 [(?! :macro :nil :boolean ":") :namespace? :name]})
+                
     :keyword (token (?= ":") :namespace? :name)
-    :number (token {\0 \9}+)
-    :string (token \" #{[(?! \" \\) any-char] [\\ any-char]}* \")
-    :regex (token "#\"" #{[(?! \" \\) any-char] [\\ any-char]}* \")))
+)
+    :keyword (token \: :token) 
+    :symbol (token :token) 
 
+    :number (token {\0 \9}+)
+
+#_(    
+    :string (token \" #{[(?! \" \\) any-char] [\\ any-char]}* \")
+    :regex (token "#\"" #{[(?! \" \\) any-char] [\\ any-char]}* \")
+ )
+    :string (token \" {\a \z}* \")
+    :regex (token "#\"" {\a \z}* \")))
+(def table (apply core/lr-table g))
+(def ttable (first table))
+(def sop [[[(second table)] [] nil]])
+
+(def red (memoize (fn [n] (if (neg? n) clojure-parser (-> (red (dec n)) (step (nth selfs n)))))))   
 (def test-comment
   (grammar {:main :expr* :space [(one-of " \t\n\r,")+]}
     :expr [:line :comment]
