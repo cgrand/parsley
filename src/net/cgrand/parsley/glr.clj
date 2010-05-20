@@ -212,11 +212,11 @@
     (recur (pop stack) (dec n))
     stack))
 
-(defn- remove-last-shift [[stack events]]
+(defn- remove-last-shift [[stack events id]]
   (let [s (peek events)]
     (if (= s 1)
-      [stack (pop events)]
-      [stack (conj (pop events) (dec s))])))
+      [stack (pop events) id]
+      [stack (conj (pop events) (dec s)) id])))
 
 (defmacro shift-with {:private true} [f & etc]
   (concat [f] '(shift-state (conj stack state) events shift-i) etc))
@@ -276,38 +276,15 @@
           (step1* (peek init-stack) (pop init-stack) events 0 0 (one *eof*))
           (map remove-last-shift))))))
       
-(defn step
- "Advance all the threads by parsing the chunk s. When s is nil, it means EOF."
- [threads tables s]
-  (mapcat #(step1 (first %) (second %) tables s) threads))
-
-
 ;; 
-(defn reset [threads] 
-  (map (fn [[stack]] [stack []]) threads))
-
-(defn- longest-string [events from n]
-  (let [event (peek events)
-        etc (when event (pop events))]
-    (if event
-      (if (number? event)
-        (cond 
-          (> event n)
-            [(conj etc (- event n)) (- from n) 0]
-          (= event n)
-            [etc (- from n) 0]
-          :else
-            (recur etc (- from event) (- n event)))
-        (let [[sym m tag] event]
-          (if tag
-            [events from n]
-            (recur etc from (+ (dec n) m)))))
-      [nil from n])))
-
 (defn- count-nodes [nodes]
   (reduce #(if (string? %2) (+ %1 (count %2)) (inc %1)) 0 nodes))
 
-(defn fold-nodes [tag s events n]
+(defn fold-nodes 
+  "takes a string s, a vector of events and a number of nodes to read,
+   returns [events nil unread-nodes-count]
+   or [events nodes unread-chars-count]"
+  [s events n]
   (loop [events events n (int n) i (count s) j (count s) folded ()]
     (cond
       (zero? n)
@@ -316,7 +293,7 @@
       (empty? events)
         (let [folded (if (< i j) (conj folded (subs s i j)) folded)
               m (count-nodes folded)]
-          [nil (conj (vec folded) [nil (+ n m) tag])])
+          [(vec folded) nil (+ n m)])
       :else
         (let [event (peek events)
               etc (pop events)]
@@ -325,33 +302,36 @@
               (if (< event n)
                 (recur etc (- n event) (- i event) j folded)
                 (recur (conj etc (- event n)) (int 0) (- i n) j folded)))
-            (let [[_ N etag] event]
-              (if (or etag (= ::top-level tag))
-                (let [[rem nodes new-i] (fold-nodes etag (subs s 0 i) etc N)
+            (let [[_ N tag] event]
+              (if tag
+                (let [[rem nodes N-or-i] (fold-nodes (subs s 0 i) etc N)
                       folded (if (< i j) (conj folded (subs s i j)) folded)]
-                  (if new-i
-                    (recur rem (dec n) (int new-i) (int new-i) 
-                      (conj folded {:tag etag :content nodes}))
-                    (recur nil (int (- n (count-nodes nodes))) (int 0) (int 0) (into nodes folded))))
+                  (if nodes
+                    (recur rem (dec n) (int N-or-i) (int N-or-i) 
+                      (conj folded {:tag tag :content nodes}))
+                    [(-> rem (conj [nil N-or-i tag]) (into folded))
+                     nil (+ n (count-nodes folded))]))
                 (recur etc (int (+ (dec n) N)) i j folded))))))))
 
-(comment
-  (= (fold-nodes nil "hello" [1 [nil 2 :a]] 1)
-    [nil ["o" [nil 2 :a]]]) 
-  )
-
-
 (defn read-events [events s]
-  (let [[events nodes i] (fold-nodes ::top-level s events 1)]
-    (if i
-      (into (read-events events (subs s 0 i)) nodes)
-      (let [[_ x] (peek nodes)]
-        (if (= 1 x)
-          (pop nodes)
-          (conj (pop nodes) [nil (dec x) nil]))))))
+  (let [[events nodes N-or-i] (fold-nodes s events 1)]
+    (cond
+      nodes (conj (read-events events (subs s 0 N-or-i))
+              (if (= 1 (count-nodes nodes))
+                (first nodes)
+                {:tag nil :content nodes}))
+      (= 1 N-or-i) events
+      :else (conj events [nil N-or-i nil]))))
+
+(defn step
+ "Advance all the threads by parsing the chunk s. When s is nil, it means EOF."
+ [threads tables s]
+  (for [[stack] threads
+        [stack events id] (step1 stack [] tables s)]
+    [stack (read-events events (or s "")) id]))
 
 (defn stitchable? [a b]
-  (every? (comp (set (map #(nth % 2) b)) first) a)) 
+  (every? (comp (set (map #(nth % 2) b)) first) a))
 
 (defn- data-split [data n]
   (loop [rem data take nil n n]
@@ -361,17 +341,19 @@
         (cond
           (vector? x)
             nil
+          (and (map? x) (nil? (:tag x)))
+            (recur (pop rem) (concat (:content x) take) (dec n))
           (string? x)
             (let [m (count x)]
               (if (<= m n)
-                (recur (pop rem) (cons x take) (dec n))
+                (recur (pop rem) (cons x take) (- n m))
                 [(conj (pop rem) (subs x 0 (- m n)))
                  (cons (subs x (- m n)) take)]))
           :else
             (recur (pop rem) (cons x take) (dec n)))))))
 
 (defn- data-conj [a x]
-  (if (and (string? x) (string? (pop a)))
+  (if (and (string? x) (string? (peek a)))
     (conj (pop a) (str (peek a) x))
     (conj a x)))
 
@@ -386,19 +368,18 @@
         (recur (data-conj a x) etc))
       a)))
 
-;; TODO
-#_(defn stitch [a b]
-  (set
-    (for [[stack-a unred-a data-a src-a :as sa] a
-          [stack-b unred-b data-b src-b :as sb] b
-          :when (= stack-a src-b)]
-      (let [stack+data (reduce (fn [s [data action]]
-                                 (-> s
-                                   (stitch-shift data)
-                                   (stitch-reduce-prod action)))
-                         [stack-b unred-a data-a src-a] unred-b)
-            stack+data (stitch-shift stack+data data-b)]
-         stack+data))))
+(defn- index [key-fn coll]
+  (persistent! 
+    (reduce (fn [m b] 
+              (let [k (key-fn b)]
+                (assoc! m k (conj (m k #{}) b))))
+      (transient {}) coll)))
+
+(defn stitch [a-threads b-threads]
+  (let [bs (index #(nth % 2) b-threads)]
+    (for [[a-stack a-events a-key] a-threads
+          [b-stack b-events] (bs a-stack)]
+      [b-stack (stitch-data a-events b-events) a-key])))
 
 (comment
 (require '[net.cgrand.enlive-html :as e]) 
