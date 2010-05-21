@@ -13,44 +13,7 @@
 ;; Parsley can parse ambiguous grammars and thus returns several results.
 ;; no support for left recursion (yet)
 
-;; reducer: partial-result * event -> partial-result
-;; seed: partial-result
-;; stitch: partial-result * partial-result -> partial-result
-;; partial-result, seed and stitch must define a monoid
-(comment
-(defn parser [cont seed reducer stitch result]
-  (with-meta [[nil seed cont]] 
-    {::seed seed 
-     ::reducer #(if (= "" %2) %1 (reducer %1 %2)) 
-     ::stitch stitch
-     ::result result}))
-
-(defn step 
- [states s]
-  (let [{f ::reducer :as m} (meta states)]
-    (with-meta (core/interpreter-step f states s) m)))
-      
-(defn cut [states]
-  (let [m (meta states)
-        seed (::seed m)]
-    (with-meta (map (fn [[_ _ cont]] [cont seed cont]) states) m)))
-
-(defn- group-reduce 
- [k f seed coll]
-  (persistent! (reduce #(let [key (k %2)]
-                          (assoc! %1 key (f (%1 key seed) %2)))
-                 (transient {}) coll)))
-
-(defn results [states]
-  (let [{result ::result} (meta states)]
-    (distinct (for [[_ r cont] states :when (empty? cont)] (result r))))) 
-
-(defn- element [class contents]
-  {:tag class :content contents 
-   :length (reduce #(+ %1 (or (:length %2) (count %2))) 0 contents)}) 
-)
-
-    
+   
 ;; DSL support starts here
 
 ;; TODO: scratch that
