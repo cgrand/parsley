@@ -17,19 +17,9 @@
     
     :whitespace (token #{\space \tab \newline}+ (?! #{\space \tab \newline}))))
 
-(def table (apply core/lr-table sexp))
-(def sop [[(list 0) [] nil]])
-
-(def step #(core/step %1 table %2))
-(def eof #(core/step %1 table nil))
-
 (defn step-> [& chunks]
-  (let [ss #(core/stitch %1 (step %1 %2))
-        threads (reduce ss sop chunks)]
-    (ss threads nil)))
-
-(defn events [state s]
-  (core/read-events (-> state first second) s))
+  (let [pieces (reductions sexp nil (concat chunks [nil]))]
+    (reduce core/stitch pieces)))
 
 (defn tree [parse-tree]
   (cond

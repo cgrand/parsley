@@ -195,6 +195,7 @@
 (defn lr-table [grammar start tags]
   (-> (lr-table* grammar start tags) number-syms-and-states split-table))
 
+(def boot-state [[(list 0) [] nil]])
 
 ;; the step function 
 ;; I tried to optimize "step" for:
@@ -326,13 +327,28 @@
 (defn step
  "Advance all the threads by parsing the chunk s. When s is nil, it means EOF."
  [threads tables s]
-  (for [[stack] threads
+  (for [[stack] (or threads boot-state)
         [stack events id] (step1 stack [] tables s)]
     [stack (read-events events (or s "")) id]))
 
 (defn stitchable? [a b]
   (every? (comp (set (map #(nth % 2) b)) first) a))
 
+(defn- data-conj [a x]
+  (if (and (string? x) (string? (peek a)))
+    (conj (pop a) (str (peek a) x))
+    (conj a x)))
+
+(defn- data-concat [a b]
+  (lazy-seq
+    (if-let [[x & xs] (seq a)]
+      (if xs
+        (cons x (data-concat xs b))
+        (if (and (string? x) (string? (first b)))
+          (cons (str x (first b)) (rest b))
+          (cons x b)))
+      b)))
+  
 (defn- data-split [data n]
   (loop [rem data take nil n n]
     (if (zero? n) 
@@ -342,7 +358,7 @@
           (vector? x)
             nil
           (and (map? x) (nil? (:tag x)))
-            (recur (pop rem) (concat (:content x) take) (dec n))
+            (recur (pop rem) (data-concat (:content x) take) (dec n))
           (string? x)
             (let [m (count x)]
               (if (<= m n)
@@ -351,11 +367,6 @@
                  (cons (subs x (- m n)) take)]))
           :else
             (recur (pop rem) (cons x take) (dec n)))))))
-
-(defn- data-conj [a x]
-  (if (and (string? x) (string? (peek a)))
-    (conj (pop a) (str (peek a) x))
-    (conj a x)))
 
 (defn- stitch-data [a b]
   (loop [a a b (seq b)]
@@ -377,7 +388,7 @@
 
 (defn stitch [a-threads b-threads]
   (let [bs (index #(nth % 2) b-threads)]
-    (for [[a-stack a-events a-key] a-threads
+    (for [[a-stack a-events a-key] (or a-threads boot-state) 
           [b-stack b-events] (bs a-stack)]
       [b-stack (stitch-data a-events b-events) a-key])))
 

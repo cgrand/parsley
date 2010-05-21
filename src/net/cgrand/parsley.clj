@@ -267,6 +267,13 @@
       ~main-name
       ~public-rulenames]))) 
 
+(defn stepper [table]
+  (fn [state s]
+    (core/step state table s)))
+
+(defmacro parser [options-map & rules]
+  `(stepper (apply core/lr-table (grammar ~options-map ~@rules))))
+
 (comment
 (def table (apply lr-table 
              (grammar {:main [:A*]
