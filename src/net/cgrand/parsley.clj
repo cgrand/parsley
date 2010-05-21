@@ -253,7 +253,9 @@
           public-rulenames (set public-rulenames)
           space-name (when (options-map :space) (genkey "space__"))
           main-name (genkey "main__")
-          grammar (into {main-name `(spec ~main core/$)}
+          grammar (into {main-name (if space-name
+                                     `(token ~space-name ~main ~space-name core/$)
+                                     `(token ~main core/$))}
                     (for [[name specs] rules]
                       [(or (private? name) name) `(spec ~specs)]))
           grammar (if space-name 
