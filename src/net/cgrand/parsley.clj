@@ -66,6 +66,11 @@
 (defn one-of [s]
   (into [:alt] s))
 
+(defn none-of [& cs]
+  (let [cps (map int (sort (apply str cs)))]
+    (into {0 (dec (first cps)) (inc (last cps)) core/*max*}
+      (map #(vector (inc %1) (dec %2)) cps (rest cps)))))
+
 (def any-char {0 core/*max*})
 
 (def $ {-1 0})
