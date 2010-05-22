@@ -223,16 +223,6 @@
        
 
 
-;(defn one-of [& xs]
-;  [core/char-range-op (cset xs)])
-    
-;(defn not-one-of [& xs]
-  ;[core/char-range-op (-> xs cset complement-cset)])
-    
-;(def any-char (not-one-of))
-
-;(def eof [core/op-eof])
-
 (defn- private? [kw]
   (let [s (name kw)]
     (when (.endsWith s "-")
