@@ -1,25 +1,66 @@
 (ns net.cgrand.parsley.test
-  (:require [net.cgrand.parsley.glr :as core])
-  (:use net.cgrand.parsley)
+  (:require [net.cgrand.parsley.glr :as core] :reload)
+  (:use net.cgrand.parsley :reload)
   (:use clojure.test))
 
 (def sexp 
-  (grammar {:space :whitespace?
-            :main [:expr*]}
-    
-    :expr- #{:atom :list :vector :set :map}
-    :atom (token {\a \z \A \Z \- \- \0 \9 \. \.}+ 
-            (?! {\a \z \A \Z \- \- \0 \9 \. \.}))
+  (parser {:space [#{:whitespace :comment :discard}*]
+            :main :expr*}
+    :expr- #{:atom :list :vector :set :map :string :regex
+             :meta :deprecated-meta :quote 
+             :unquote :syntax-quote :unquote-splicing
+             :deref :var :fn :char}
+    :atom1st- #{{\a \z \A \Z \0 \9} (any-of "!$%&*+-./:<=>?_")}
+    :atom (token :atom1st #{:atom1st \#}* (?! #{:atom1st \#}))
+    :string (token \" #{(none-of \\ \") [\\ any-char]}* \")
+    :hex- {\0 \9 \a \f \A \F}
+    :char (token \\ #{any-char "newline" "space" "tab" "backspace" 
+                      "formfeed" "return" 
+                      [\u :hex :hex :hex :hex]
+                      [\o {\0 \7}]
+                      [\o {\0 \7} {\0 \7}]
+                      [\o {\0 \3} {\0 \7} {\0 \7}]}
+            (?! #{:atom1st \#}))
+    :regex (token \# \" #{(none-of \\ \") [\\ any-char]}* \") 
     :list ["(" :expr* ")"]
     :vector ["[" :expr* "]"]
     :set ["#{" :expr* "}"]
     :map ["{" :expr* "}"]
+    :discard ["#_" :expr]
+    :meta ["^" :expr :expr]
+    :quote [\' :expr] 
+    :syntax-quote [\` :expr]
+    :tilda- [\~ (?! \@)]
+    :unquote [:tilda :expr]
+    :unquote-splicing ["~@" :expr]
+    :deprecated-meta ["#^" :expr :expr]
+    :deref [\@ :expr]
+    :var ["#'" :expr]
+    :fn ["#(" :expr* ")"]
+
+    :comment (token #{"#!" ";"} (none-of \newline)* (?! (none-of \newline)))
     
-    :whitespace (token #{\space \tab \newline}+ (?! #{\space \tab \newline}))))
+    :whitespace (token #{\space \tab \newline \,}+ (?! #{\space \tab \newline \,}))))
 
 (defn step-> [& chunks]
   (let [pieces (reductions sexp nil (concat chunks [nil]))]
     (reduce core/stitch pieces)))
+
+(defn step-> [& chunks]
+  (let [pieces (reductions sexp nil (concat chunks [nil]))]
+    (reduce (comp doall core/stitch) pieces)))
+
+(defn step-> [& chunks]
+  (loop [pieces (reductions sexp nil (concat chunks [nil]))]
+    (if (next pieces)
+      (recur (map #(if (next %) (apply core/stitch %) (first %)) (partition-all 2 pieces)))
+      (first pieces))))
+
+(defn build-tree [pieces]
+  (if (next pieces)
+    (recur (map #(if (next %) (apply core/stitch %) (first %)) (partition-all 2 pieces)))
+    (first pieces)))
+
 
 (defn tree [parse-tree]
   (cond
@@ -36,6 +77,7 @@
   (are [r s] (= r (match-type (step-> s)))
     :match ""
     :match "hello"
+    :match "hello world"
     :match "  hello  "
     :match "(hello)"
     :match "(  hello  )"

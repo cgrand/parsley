@@ -63,7 +63,7 @@
 (defmacro ?! [& specs]
   `[:not-follow (spec ~@specs)])
 
-(defn one-of [s]
+(defn any-of [s]
   (into [:alt] s))
 
 (defn none-of [& cs]
@@ -248,11 +248,8 @@
           public-rulenames (set public-rulenames)
           space-name (when (options-map :space) (genkey "space__"))
           main-name (genkey "main__")
-          main-name* (genkey "main*__")
-          grammar (into {main-name* `(spec ~main) 
-                         main-name (if space-name
-                                     `(token ~space-name ~main-name* ~space-name core/$)
-                                     `(token ~main-name* core/$))}
+          grammar (into {main-name `(spec ~@(when space-name [space-name ]) 
+                                              ~main core/$)}
                     (for [[name specs] rules]
                       [(or (private? name) name) `(spec ~specs)]))
           grammar (if space-name 
