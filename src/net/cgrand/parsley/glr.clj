@@ -83,8 +83,6 @@
             (into-rangemap (for [r s] [r #{:b}])))]
     (for [[r s] m :when (not (:b s))] r)))   
 
-(def $ (ranges *eof*))
-
 ;; table computations
 (defn measure [rhs]
   (if (map? (last rhs)) 
