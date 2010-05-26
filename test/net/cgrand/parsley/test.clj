@@ -13,9 +13,9 @@
     :atom1st- #{{\a \z \A \Z \0 \9} (any-of "!$%&*+-./:<=>?_")}
     :atom (token :atom1st #{:atom1st \#}:* (?! #{:atom1st \#}))
     :string (token \" #{(none-of \\ \") [\\ any-char]}:* \")
-    :hex- {\0 \9 \a \f \A \F}
     :char (token \\ #{any-char "newline" "space" "tab" "backspace" 
-                      "formfeed" "return" 
+                      "formfeed" "return"
+                      (into [\u] (repeat 4 {\0 \9 \a \f \A \F}))
                       [\u :hex :hex :hex :hex]
                       [\o {\0 \7}]
                       [\o {\0 \7} {\0 \7}]
