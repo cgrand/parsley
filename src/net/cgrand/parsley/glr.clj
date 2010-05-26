@@ -223,14 +223,14 @@
   (concat [f] '(shift-state (conj stack state) events shift-i) etc))
 
 (defmacro slow-path {:private true} []
-  '(step1* state stack events shift-i i (one c)))
+  '(step1* state stack (persistent!  events) shift-i i (one c)))
 
 (defn step1 [init-stack events tables #^String s]
   (let [[#^objects shifts #^objects reduces #^objects gotos 
          #^objects shifts* #^objects reduces*] tables
         n (int (count s))]
     (letfn [(qstep1* [state stack events shift-i i]
-              (loop [state (int state) stack stack events events 
+              (loop [state (int state) stack stack events (transient events) 
                      shift-i (int shift-i) i (int i)]
                  (if (> n i)
                    (let [c (int (.charAt s i))]
@@ -247,14 +247,14 @@
                                                 (aget (int sym)))
                                    events (let [len (- i shift-i)]
                                             (if (pos? len)
-                                              (conj events len action)
-                                              (conj events action)))]
+                                              (-> events (conj! len) (conj! action))
+                                              (conj! events action)))]
                                (recur goto-state stack events i i))
                              (slow-path))
                            (shift-with recur (unchecked-inc i))))
                        (slow-path)))
                    [[(conj stack state) 
-                     (if (< shift-i i) (conj events (- i shift-i)) events)
+                     (persistent! (if (< shift-i i) (conj! events (- i shift-i)) events)) 
                      init-stack]])))
             (step1* [state stack events shift-i i c]
               (concat 
