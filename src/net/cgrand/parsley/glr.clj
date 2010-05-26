@@ -279,34 +279,37 @@
 (defn- count-nodes [nodes]
   (reduce #(if (string? %2) (+ %1 (count %2)) (inc %1)) 0 nodes))
 
+(defn- my-peek [v]
+  (nth v (unchecked-dec (.count #^clojure.lang.Counted v))))
+
 (defn fold-nodes 
   "takes a string s, a vector of events and a number of nodes to read,
    returns [events nil unread-nodes-count]
    or [events nodes unread-chars-count]"
   [s events n]
-  (loop [events events n (int n) i (count s) j (count s) folded ()]
+  (loop [events (transient events) n (int n) i (count s) j (count s) folded ()]
     (cond
       (zero? n)
         (let [folded (if (< i j) (conj folded (subs s i j)) folded)]
-          [events folded i])
+          [(persistent! events) folded i])
       (zero? (.count #^clojure.lang.Counted events))
         (let [folded (if (< i j) (conj folded (subs s i j)) folded)
               m (count-nodes folded)]
           [(vec folded) nil (+ n m)])
       :else
-        (let [event (peek events)
-              etc (pop events)]
+        (let [event (my-peek events)
+              etc (pop! events)]
           (if (number? event)
             (let [event (int event)]
               (if (< event n)
                 (recur etc (- n event) (- i event) j folded)
-                (recur (conj etc (- event n)) (int 0) (- i n) j folded)))
+                (recur (conj! etc (- event n)) (int 0) (- i n) j folded)))
             (let [[_ N tag] event]
               (if tag
-                (let [[rem nodes N-or-i] (fold-nodes (subs s 0 i) etc N)
+                (let [[rem nodes N-or-i] (fold-nodes (subs s 0 i) (persistent! etc) N)
                       folded (if (< i j) (conj folded (subs s i j)) folded)]
                   (if nodes
-                    (recur rem (dec n) (int N-or-i) (int N-or-i) 
+                    (recur (transient rem) (dec n) (int N-or-i) (int N-or-i) 
                       (conj folded {:tag tag :content nodes}))
                     [(-> rem (conj [nil N-or-i tag]) (into folded))
                      nil (+ n (count-nodes folded))]))
