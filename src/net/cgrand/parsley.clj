@@ -233,8 +233,12 @@
   [grammar ::main public-rulenames])) 
 
 (defn stepper [table]
-  (fn [state s]
-    (core/step state table s)))
+  (fn self
+    ([s]
+      (let [a (self nil s) b (self a nil)]
+        (core/stitch a b)))
+    ([state s]
+      (core/step state table s))))
 
 (defn parser [options-map & rules]
   (stepper (apply core/lr-table (apply grammar options-map rules))))
