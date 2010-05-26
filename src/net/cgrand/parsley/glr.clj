@@ -289,7 +289,7 @@
       (zero? n)
         (let [folded (if (< i j) (conj folded (subs s i j)) folded)]
           [events folded i])
-      (empty? events)
+      (zero? (.count #^clojure.lang.Counted events))
         (let [folded (if (< i j) (conj folded (subs s i j)) folded)
               m (count-nodes folded)]
           [(vec folded) nil (+ n m)])
