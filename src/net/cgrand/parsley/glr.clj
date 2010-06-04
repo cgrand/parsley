@@ -339,19 +339,9 @@
   (if (and (string? x) (string? (peek a)))
     (conj (pop a) (str (peek a) x))
     (conj a x)))
-
-(defn- data-concat [a b]
-  (lazy-seq
-    (if-let [[x & xs] (seq a)]
-      (if xs
-        (cons x (data-concat xs b))
-        (if (and (string? x) (string? (first b)))
-          (cons (str x (first b)) (rest b))
-          (cons x b)))
-      b)))
   
 (defn- data-split [data n]
-  (loop [rem data take nil n n]
+  (loop [rem data take () n n]
     (if (zero? n) 
       [rem take]
       (when-let [x (peek rem)]
@@ -359,15 +349,15 @@
           (vector? x)
             nil
           (and (map? x) (nil? (:tag x)))
-            (recur (pop rem) (data-concat (:content x) take) (dec n))
+            (recur (pop rem) (concat (:content x) take) (dec n))
           (string? x)
             (let [m (count x)]
               (if (<= m n)
-                (recur (pop rem) (cons x take) (- n m))
+                (recur (pop rem) (conj take x) (- n m))
                 [(conj (pop rem) (subs x 0 (- m n)))
-                 (cons (subs x (- m n)) take)]))
+                 (conj take (subs x (- m n)))]))
           :else
-            (recur (pop rem) (cons x take) (dec n)))))))
+            (recur (pop rem) (conj take x) (dec n)))))))
 
 (defn- stitch-data [a b]
   (loop [a a b (seq b)]

@@ -3,19 +3,45 @@
   (:use net.cgrand.parsley :reload)
   (:use clojure.test))
 
-(def sexp 
+(def sexp
+  (let [digits "0123456789"
+        spaces " \t\n,"
+        terminating-macros "\";'@^`~()[]{}\\%"]
   (parser {:space [#{:whitespace :comment :discard}:*]
             :main :expr*}
-    :expr- #{:atom :list :vector :set :map :string :regex
+    :atom1st- #{{\a \z \A \Z \0 \9} (any-of "!$%&*+-./:<=>?_")}
+    :expr- #{:atom :list :vector :set :map :string :regex :broken-map
              :meta :deprecated-meta :quote 
              :unquote :syntax-quote :unquote-splicing
              :deref :var :fn :char}
-    :atom1st- #{{\a \z \A \Z \0 \9} (any-of "!$%&*+-./:<=>?_")}
-    :atom (token :atom1st #{:atom1st \#}:* (?! #{:atom1st \#}))
+    :eot- #{(any-of terminating-macros spaces) $} 
+    :hex- {\0 \9 \a \f \A \F}
+    :atom- (token #{:number :symbol :keyword} (?= :eot))
+    :integer- (token #{\+ \-}:? 
+                #{\0 
+                  [{\1 \9}{\0 \9}:*]
+                  [\0 {\X \x} :hex+]
+                  [\0 {\0 \7}:+]
+                  [{\1 \9}{\0 \9}:? #{\r \R} {\0 \9 \a \z \A \Z}]})
+    :ratio- (token #{\+ \-}:? {\0 \9}:+ "/"  {\0 \9}:+)
+    :mantissa- (token {\0 \9}:+ (?= (any-of ".eEM")))
+    :float- (token #{\+ \-}:? :mantissa ["." {\0 \9}:*]:?
+              [#{\e \E} #{\+ \-}:? {\0 \9}:+]:?
+              "M":?)
+    :number #{:integer :float :ratio}
+    :symbol #{"/" "clojure.core//" "+" "-"
+              (token 
+                #{(none-of "/:#+-" terminating-macros spaces digits) 
+                  [(any-of "+-") (none-of digits terminating-macros spaces)]
+                  "%"} 
+                [(none-of terminating-macros spaces):*
+                 (none-of "/" terminating-macros spaces)]:?)}
+    :keyword (token \: (none-of "/" terminating-macros spaces)
+                [(none-of terminating-macros spaces):*
+                 (none-of "/" terminating-macros spaces)]:?)
     :string (token \" #{(none-of \\ \") [\\ any-char]}:* \")
     :char (token \\ #{any-char "newline" "space" "tab" "backspace" 
                       "formfeed" "return"
-                      (into [\u] (repeat 4 {\0 \9 \a \f \A \F}))
                       [\u :hex :hex :hex :hex]
                       [\o {\0 \7}]
                       [\o {\0 \7} {\0 \7}]
@@ -25,7 +51,8 @@
     :list ["(" :expr* ")"]
     :vector ["[" :expr* "]"]
     :set ["#{" :expr* "}"]
-    :map ["{" :expr* "}"]
+    :map ["{" [:expr :expr]:* "}"]
+    :broken-map ["{" [:expr :expr]:* :expr "}"]
     :discard ["#_" :expr]
     :meta ["^" :expr :expr]
     :quote [\' :expr] 
@@ -40,7 +67,7 @@
 
     :comment (token #{"#!" ";"} (none-of \newline):* (?! (none-of \newline)))
     
-    :whitespace (token #{\space \tab \newline \,}:+ (?! #{\space \tab \newline \,}))))
+    :whitespace (token (any-of spaces):+ (?! (any-of spaces))))))
 
 (defn step-> [& chunks]
   (let [pieces (reductions sexp nil (concat chunks [nil]))]
