@@ -65,30 +65,33 @@
                        (first tms))))) (range 128)))]
     (CompoundTokenMatcher. qtable (set tms)))) 
 
-(defn popN [stack n]
+(defn my-peek [v]
+  (nth v (unchecked-dec (.count #^clojure.lang.Counted v))))
+
+(defn popN! [stack n]
   (if (pos? n)
-    (recur (pop stack) (dec n))
+    (recur (pop! stack) (dec n))
     stack))
 
 (defn step1 [table state s eof]
   (let [[stack rem events] state
         s (if (= "" rem) s (str rem s))]
-    (loop [stack stack events events s s]
+    (loop [stack (transient stack) events (transient events) s s]
       #_(prn stack events s)
-      (let [cs (table (peek stack))]
+      (let [cs (table (my-peek stack))]
         (if-let [action (:reduce cs)]
           (let [[sym n] action
-                stack (popN stack n)
-                cs (table (peek stack))]
+                stack (popN! stack n)
+                cs (table (my-peek stack))]
             #_(prn action stack cs)
-            (recur (conj stack ((:gotos cs) sym)) (conj events action) s))
+            (recur (conj! stack ((:gotos cs) sym)) (conj! events action) s))
           (let [tm (:token-matcher cs)]
             (when-let [[n id] (match tm s eof)]
               (if (neg? n)
-                [stack s events]
+                [(persistent! stack) s (persistent! events)]
                 (let [token (subs s 0 n)
                       s (subs s n)]
-                  (recur (conj stack ((:shifts cs) id)) (conj events token) s))))))))))
+                  (recur (conj! stack ((:shifts cs) id)) (conj! events token) s))))))))))
 
 (comment
   (comment
