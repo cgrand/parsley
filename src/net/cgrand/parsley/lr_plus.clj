@@ -74,24 +74,24 @@
     stack))
 
 (defn step1 [table state s eof]
-  (let [[stack rem events] state
+  (let [[stack _ rem events] state
         s (if (= "" rem) s (str rem s))]
-    (loop [stack (transient stack) events (transient events) s s]
-      #_(prn stack events s)
+    (loop [stack (transient stack) events (transient events) s s wm (count stack)]
       (let [cs (table (my-peek stack))]
         (if-let [action (:reduce cs)]
           (let [[sym n] action
                 stack (popN! stack n)
-                cs (table (my-peek stack))]
-            #_(prn action stack cs)
-            (recur (conj! stack ((:gotos cs) sym)) (conj! events action) s))
+                cs (table (my-peek stack))
+                wm (Math/min wm (count stack))]
+            (recur (conj! stack ((:gotos cs) sym)) (conj! events action) s wm))
           (let [tm (:token-matcher cs)]
             (when-let [[n id] (match tm s eof)]
               (if (neg? n)
-                [(persistent! stack) s (persistent! events)]
+                [(persistent! stack) (dec wm) s (persistent! events)]
                 (let [token (subs s 0 n)
-                      s (subs s n)]
-                  (recur (conj! stack ((:shifts cs) id)) (conj! events token) s))))))))))
+                      s (subs s n)
+                      wm (Math/min wm (count stack))]
+                  (recur (conj! stack ((:shifts cs) id)) (conj! events token) s wm))))))))))
 
 (comment
   (comment
@@ -148,9 +148,9 @@
                [nil nil [:E 1 :E] nil]
                [nil nil [:E+ 1 :E+] nil]]))))
 
-    (let [s (apply str "(" (repeat 5e3 "(hello(world))"))] (time (count (step1 t [[0] "" []] s false))))
+    (let [s (apply str "(" (repeat 5e3 "(hello(world))"))] (time (count (step1 t [[0] 0 "" []] s false))))
 
-    net.cgrand.parsley.lr-plus=> (step1 t [[0] "" []] "((hello)" false)
+    net.cgrand.parsley.lr-plus=> (step1 t [[0] 0 "" []] "((hello)" false)
     [[0 1 2] "" ["(" "(" "hello" [:E 1 :E] [:E+ 1 :E+] ")" [:E 3 :E] [:E+ 1 :E+]]]
 )
 
