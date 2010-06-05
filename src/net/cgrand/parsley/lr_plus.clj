@@ -145,4 +145,9 @@
                [nil nil [:E 1 :E] nil]
                [nil nil [:E+ 1 :E+] nil]]))))
 
-    (let [s (apply str "(" (repeat 5e3 "(hello(world))"))] (time (count (step1 t [[0] "" []] s false)))))
+    (let [s (apply str "(" (repeat 5e3 "(hello(world))"))] (time (count (step1 t [[0] "" []] s false))))
+
+    net.cgrand.parsley.lr-plus=> (step1 t [[0] "" []] "((hello)" false)
+    [[0 1 2] "" ["(" "(" "hello" [:E 1 :E] [:E+ 1 :E+] ")" [:E 3 :E] [:E+ 1 :E+]]]
+)
+
