@@ -1,7 +1,7 @@
 (ns net.cgrand.parsley.lr-plus)
 
-(defrecord State [token-matcher shifts reduce gotos])
-(defn state [token-matcher shifts reduce goto] (State. token-matcher shifts reduce goto))
+(defrecord TableState [token-matcher shifts reduce gotos])
+(defn state [token-matcher shifts reduce goto] (TableState. token-matcher shifts reduce goto))
 
 (defprotocol TokenMatcher
   (match [this s eof]))
