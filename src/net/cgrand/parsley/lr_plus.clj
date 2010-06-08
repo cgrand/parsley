@@ -55,15 +55,18 @@
   (when-let [[n] (match token-matcher s true)]
     (or (neg? n) (== n (.length s)))))
 
-(defn compound [tms]
-  (let [qtable (vec (map (fn [cp] 
-                 (let [s (str (char cp)) 
-                       tms (filter #(match-prefix? % s) tms)]
-                   (when (seq tms)
-                     (if (next tms)
-                       (set tms)
-                       (first tms))))) (range 128)))]
-    (CompoundTokenMatcher. qtable (set tms)))) 
+(defn matcher [tms]
+  (when (seq tms)
+    (if (next tms)
+      (let [qtable (vec (map (fn [cp] 
+                     (let [s (str (char cp)) 
+                           tms (filter #(match-prefix? % s) tms)]
+                       (when (seq tms)
+                         (if (next tms)
+                           (set tms)
+                           (first tms))))) (range 128)))]
+        (CompoundTokenMatcher. qtable (set tms)))
+      (first tms))))
 
 (defn my-peek [v]
   (nth v (unchecked-dec (.count #^clojure.lang.Counted v))))
@@ -139,10 +142,10 @@
     
     (def t
       (let [w #"\w+"]
-        (vec (map #(apply state %)
-              [[(compound #{"(" w}) {"(" 1 w 5} nil nil]
-               [(compound #{"(" w}) {"(" 1 w 5} nil {:E+ 2 :E 6}]
-               [(compound #{"(" w ")"}) {"(" 1 ")" 3 w 5} nil {:E 4}]
+        (vec (map #(apply table-state %)
+              [[(matcher #{"(" w}) {"(" 1 w 5} nil nil]
+               [(matcher #{"(" w}) {"(" 1 w 5} nil {:E+ 2 :E 6}]
+               [(matcher #{"(" w ")"}) {"(" 1 ")" 3 w 5} nil {:E 4}]
                [nil nil [:E 3 :E] nil]
                [nil nil [:E+ 2 :E+] nil]
                [nil nil [:E 1 :E] nil]
