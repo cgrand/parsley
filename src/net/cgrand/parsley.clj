@@ -8,148 +8,99 @@
 
 (ns net.cgrand.parsley
   "An experimental undocumented parser lib/DSL."
-  (:require [net.cgrand.parsley.glr :as core]))
+  (:require [net.cgrand.parsley.lr-plus :as core]))
 
-;; Parsley can parse ambiguous grammars and thus returns several results.
-;; no support for left recursion (yet)
-
-   
-;; DSL support starts here
-
-;; TODO: scratch that
-;; once evaluated grammar consists of a map of keyword to:
+;; A grammar consists of a map of keywords to:
 ;; * vectors (sequence)
 ;; * sets (alternatives)
-;; * strings and characters (literals)
-;; * maps (charsets)
-;; * keywords (non-terminal)
-;; * lists (special-ops: follow restrictions, rejects)
+;; * keywords (non-terminal or operators: :*, :+, :?)
+;; * antything else (strings, patterns, fns and characters) are literals
 
 (defprotocol RuleFragment
-  (collect [fragment token-mode top-rulename])
-  (develop [fragment rewrite space]))
+  (unsugar [fragment] "Remove sugarized forms")
+  (collect [fragment unspaced top-rulename] "Collect \"anonymous\" productions")
+  (develop [fragment rewrite space] 
+    "normalize as a seq of seqs of keywords and terminals" ))
 
-(defrecord Alt [items]
+(defrecord Unspaced [item]
   RuleFragment
-    (collect [this token-mode top-rulename]
-      (mapcat #(collect % token-mode top-rulename) items))
-    (develop [this rewrite space]
-      (mapcat #(rewrite % space) items)))
-
-(defrecord Seq [items]
-  RuleFragment
-    (collect [this token-mode top-rulename]
-      (mapcat #(collect % token-mode top-rulename) items))
-    (develop [this rewrite space]
-      (reduce #(for [x (rewrite %2 space) xs %1] 
-                 (concat x (and space (seq x) (seq xs) [space]) xs))
-        [()] (rseq items))))
-
-(defrecord Token [item]
-  RuleFragment
-    (collect [this token-mode top-rulename]
+    (unsugar [this]
+      (Unspaced. (unsugar item)))
+    (collect [this unspaced top-rulename]
       (collect item true top-rulename))
     (develop [this rewrite space]
       (rewrite item nil)))
 
+(defn unspaced [& specs]
+  (Unspaced. (vec specs)))
+
 (defrecord Repeat+ [item]
   RuleFragment
-    (collect [this token-mode top-rulename]
+    (unsugar [this]
+      (Repeat+. (unsugar item)))
+    (collect [this unspaced top-rulename]
       (let [kw (keyword (gensym (str top-rulename "_repeat+_")))
-            alt (Alt. [(Seq. [kw item]) item])]
-        (cons [this kw (if token-mode (Token. alt) alt)] 
-          (collect item token-mode top-rulename)))))
+            alt #{[kw item] item}]
+        (cons [this kw (if unspaced (Unspaced. alt) alt)] 
+          (collect item unspaced top-rulename)))))
 
-(defrecord Follow [item negative]
-  RuleFragment
-    (collect [this token-mode top-rulename]
-      (collect item token-mode top-rulename))
-    (develop [this rewrite space]
-      [[{:follow1 (set (rewrite item space))
-         :complement negative}]]))
-
-;; 1. compile-spec turns a sugar-heavy grammar in a sugar-free grammar  
-(defmulti #^{:private true} compile-spec type)
-
-;; a vector denotes a sequence, supports postfix operators + ? and *
-(defmethod compile-spec clojure.lang.IPersistentVector [specs]
-  (Seq. 
-    (reduce #(condp = %2 
-             :* (conj (pop %1) (Alt. [(Seq. []) (Repeat+. (peek %1))])) 
-             :+ (conj (pop %1) (Repeat+. (peek %1)))
-             :? (conj (pop %1) (Alt. [(Seq. []) (peek %1)]))
-             (conj %1 (compile-spec %2))) [] specs)))
-  
-
-;; a set denotes an alternative
-(defmethod compile-spec clojure.lang.IPersistentSet [s]
-  (Alt. (map compile-spec s)))
-
-;; a ref to another rule: add support for + ? or * suffixes
-(defmethod compile-spec clojure.lang.Keyword [kw]
-  (if-let [[_ base suffix] (re-matches #"(.*?)([+*?])" (name kw))] 
-    (compile-spec [(keyword base) (keyword suffix)])
-    kw))
-
-;; else pass through
-(defmethod compile-spec :default [x]
-  x)
-
-(defn spec [& xs]
-  (compile-spec (vec xs)))
-
-;; DSL utils
-(defn token [& specs]
-  (Token. (apply spec specs)))
-
-(defn ?= [& specs]
-  (Follow. (apply spec specs) false))
-
-(defn ?! [& specs]
-  (Follow. (apply spec specs) true))
-
-(defn any-of [& cs]
-  (let [s (apply str cs)]
-    (zipmap s s)))
-
-(defn none-of [& cs]
-  (let [cps (map int (sort (apply str cs)))]
-    (into {0 (dec (first cps)) (inc (last cps)) core/*max*}
-      (filter #(apply <= %) (map #(vector (inc %1) (dec %2)) cps (rest cps))))))
-
-(def any-char {0 core/*max*})
-
-(def $ {-1 -1})
 
 ;; 2. collect new rules
 (extend-protocol RuleFragment
-  nil
-    (collect [this token-mode top-rulename]
+#_ (  nil
+    (unsugar [this]
+      this)
+    (collect [this unspaced top-rulename]
       nil)
     (develop [this rewrite space]
-      [()])
-  String
-    (collect [this token-mode top-rulename]
-      nil)
-    (develop [this rewrite space]
-      [(map core/ranges this)])
-  Character
-    (collect [this token-mode top-rulename]
-      nil)
-    (develop [this rewrite space]
-      [[(core/ranges this)]])
-  clojure.lang.IPersistentMap 
-    (collect [this token-mode top-rulename]
-      nil)
-    (develop [this rewrite space]
-      [[(apply core/ranges this)]])
-  Object
-    (collect [this token-mode top-rulename]
-      nil)
-    (develop [this rewrite space]
-      [[this]]))
+      [()]))
 
-(defn collect-new-rules [grammar]
+  Object
+    (unsugar [this]
+      this)
+    (collect [this unspaced top-rulename]
+      nil)
+    (develop [this rewrite space]
+      [[this]])
+    
+  ;; a ref to another rule: add support for + ? or * suffixes
+  clojure.lang.Keyword
+    (unsugar [kw]
+      (if-let [[_ base suffix] (re-matches #"(.*?)([+*?])" (name kw))] 
+        (unsugar [(keyword base) (keyword suffix)])
+        kw))
+    (collect [this unspaced top-rulename]
+      nil)
+    (develop [this rewrite space]
+      [[this]])
+    
+  ;; a set denotes an alternative
+  clojure.lang.IPersistentSet
+    (unsugar [this]
+      (set (map unsugar this)))
+    (collect [items unspaced top-rulename]
+      (mapcat #(collect % unspaced top-rulename) items))
+    (develop [items rewrite space]
+      (mapcat #(rewrite % space) items))
+    
+  ;; a vector denotes a sequence, supports postfix operators :+ :? and :*
+  clojure.lang.IPersistentVector
+    (unsugar [this]
+      (reduce #(condp = %2 
+                 :* (conj (pop %1) #{[] (Repeat+. (peek %1))}) 
+                 :+ (conj (pop %1) (Repeat+. (peek %1)))
+                 :? (conj (pop %1) #{[](peek %1)})
+                 (conj %1 (unsugar %2))) [] this))
+    (collect [items unspaced top-rulename]
+      (mapcat #(collect % unspaced top-rulename) items))
+    (develop [items rewrite space]
+      (reduce #(for [x (rewrite %2 space) xs %1] 
+                 (concat x (and space (seq x) (seq xs) [space]) xs))
+        [()] (rseq items))))
+
+(defn collect-new-rules
+ "Collect new rules for new non-terminals corresponding to repeatitions."
+ [grammar]
   (let [collected-rules 
          (mapcat (fn [[k v]] (collect v false (name k))) grammar)
         rewrites (into {} (for [[op k] collected-rules] [op k]))
@@ -159,7 +110,9 @@
     [rewrites grammar]))
 
 ;; 3. develop-alts: 
-(defn normalize 
+(defn normalize
+ "Normalize grammar as a map of non-terminals to set of seqs of
+  terminals and non-terminals"
  ([grammar] (normalize grammar nil {}))
  ([grammar space rewrites]
   (letfn [(helper [item space]
@@ -169,16 +122,13 @@
     (into {} (for [[k v] grammar] [k (set (helper v space))])))))
 
 ;; 4. remove-empty-prods
-(defn- empty-prod? [prod]
-  (every? :follow1 prod)) 
-
 (defn split-empty-prods [grammar]
   [(into {}
      (for [[k prods] grammar]
-       [k (set (remove empty-prod? prods))]))
+       [k (set (remove empty? prods))]))
    (into {}
      (for [[k prods] grammar
-           :when (some empty-prod? prods)]
+           :when (some empty? prods)]
        [k [() [k]]]))])
 
 (defn- inline-prods 
@@ -187,19 +137,14 @@
  ([prods replacement-map collapsable?]
   (letfn [(inline1 [prod]
             (if-let [[x & xs] (seq prod)]
-              (for [a (if (map? x)
-                        [[(update-in x [:follow1] inline*)]]  
-                        (replacement-map x [[x]])) 
-                    b (inline1 xs)]
+              (for [a (replacement-map x [[x]]) b (inline1 xs)]
                 (if (and (collapsable? (last a)) (collapsable? (first b)))
                   (concat a (rest b))
                   (concat a b)))
-              [()]))
-          (inline* [prods]
-            (mapcat inline1 prods))]
-    (inline* prods))))
+              [()]))]
+    (mapcat inline1 prods))))
 
-(defn inline-empty-prods* [grammar space]
+(defn- inline-empty-prods* [grammar space]
   (let [[grammar empty-prods] (split-empty-prods grammar)]
     (into {}
       (for [[k prods] grammar]
@@ -211,9 +156,16 @@
 
 
 (defn- private? [kw]
-  (let [s (name kw)]
-    (when (.endsWith s "-")
-      (keyword (subs s 0 (dec (count s)))))))
+  (.endsWith (name kw) "-"))
+
+(defn- basename [kw]
+  (if (private? kw)
+    (let [s (name kw)
+          n (subs s 0 (dec (count s)))]
+      (if-let [ns (namespace kw)]
+        (keyword ns n)
+        (keyword n)))
+    kw))
 
 ;;;;;;;;;;;
 (defn grammar [options-map & rules]
@@ -224,12 +176,14 @@
         public-rulenames (remove private? (map first rules))
         {:keys [main space] :or {main (first public-rulenames)}} options-map
         public-rulenames (set public-rulenames)
-        grammar (into {::main (spec (when space ::space) main $)
-                       ::space (token space)}
-                  (for [[name specs] rules]
-                    [(or (private? name) name) (spec specs)]))
+        rules (concat rules 
+                [[::main main]]
+                (when space [[::space (unspaced space)]]))
+        grammar (into {} (for [[name specs] rules]
+                           [(basename name) (unsugar specs)]))
         [rewrites grammar] (collect-new-rules grammar)
-        grammar (-> grammar (normalize (and space ::space) rewrites) 
+        grammar (-> grammar 
+                  (normalize (and space ::space) rewrites) 
                   (inline-empty-prods ::space))]
   [grammar ::main public-rulenames])) 
 
@@ -249,7 +203,7 @@
              (grammar {:main [:A*]
                        :space [" "*]}
                :letter- #{{\a \z, \A \Z, \0 \9} \-}
-               :atom (token :letter+ (?! :letter))
+               :atom (unspaced :letter+ (?! :letter))
                :A #{:atom [\( :A* \)]})))
 (def ttable (first table))
 (def sop [[[(second table)] [] [] nil]])
@@ -257,6 +211,6 @@
 "'<A><atom>cccccc</atom></A>"
 (-> sop (step ttable "aa aa") (step1 ttable -1) prd)
 "<A><atom>aa</atom></A> <A><atom>aa</atom></A>"
-(-> sop (step ttable "(mapcat (partial collect-rules tokenmode) (rest v))") (step1 ttable -1) prd)
-"<A>(<A><atom>mapcat</atom></A> <A>(<A><atom>partial</atom></A> <A><atom>collectrules</atom></A> <A><atom>tokenmode</atom></A>)</A> <A>(<A><atom>rest</atom></A> <A><atom>v</atom></A>)</A>)</A>"
+(-> sop (step ttable "(mapcat (partial collect-rules unspacedmode) (rest v))") (step1 ttable -1) prd)
+"<A>(<A><atom>mapcat</atom></A> <A>(<A><atom>partial</atom></A> <A><atom>collectrules</atom></A> <A><atom>unspacedmode</atom></A>)</A> <A>(<A><atom>rest</atom></A> <A><atom>v</atom></A>)</A>)</A>"
 )
