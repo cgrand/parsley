@@ -9,6 +9,15 @@
   (match [this s eof]))
 
 (extend-protocol TokenMatcher
+  Character
+    (match [this ^String s eof]
+      (cond
+        (.isEmpty s)
+          (when-not eof [-1])
+        (= (.charAt s 0) this)
+          [1 this] 
+        :else
+          nil))
   String
     (match [this ^String s eof]
       (cond
