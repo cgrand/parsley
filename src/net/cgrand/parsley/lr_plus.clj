@@ -1,7 +1,9 @@
-(ns net.cgrand.parsley.lr-plus)
+(ns net.cgrand.parsley.lr-plus
+  "LR+ is LR(0) with contextual tokenizing.")
 
+;; pushdown automaton
 (defrecord TableState [token-matcher shifts reduce gotos])
-(defn state [token-matcher shifts reduce goto] (TableState. token-matcher shifts reduce goto))
+(defn table-state [token-matcher shifts reduce goto] (TableState. token-matcher shifts reduce goto))
 
 (defprotocol TokenMatcher
   (match [this s eof]))
@@ -96,6 +98,60 @@
                       wm (Math/min wm (count stack))]
                   (recur (conj! stack ((:shifts cs) id)) (conj! events token) s wm))))))))))
 
+;; LR+ table construction
+(defn fix-point [f init]
+  (let [v (f init)]
+    (if (= v init)
+      init
+      (recur f v))))
+
+(defn close [init-states state]
+  (fix-point (fn [state]
+               (let [follows (map #(first (nth % 2)) state)]
+                 (into state (mapcat init-states follows)))) 
+    (set state)))
+
+(defn mapvals [map f]
+  (into map (for [[k v] map] [k (f k v)])))
+
+(defn filter-keys [map pred]
+  (into {} (for [kv map :when (pred (key kv))] kv)))
+
+(defn follow-map [state]
+  (apply merge-with into 
+    (for [[k n prod] state] {(first prod) #{[k n (next prod)]}})))
+
+(defn transitions [close tags state]
+  (let [follows (mapvals (follow-map state) #(close %2))
+        gotos (filter-keys follows keyword?)
+        shifts (filter-keys (dissoc follows nil) (complement gotos))
+        reduces (follows nil)
+        reduction (when-let [[sym n] (first reduces)] [sym n (tags sym)])]
+    (when (next reduces) 
+      (throw (Exception. (str "reduce/reduce conflict " reduces))))
+    (when (and reduction (seq shifts))
+      (throw (Exception. (str "shift/reduce conflict " shifts " " reduces))))
+    (table-state (matcher (keys shifts)) shifts reduction gotos)))
+
+(defn to-states [{:keys [gotos shifts]}]
+  (concat (vals gotos) (vals shifts)))
+
+(defn lr-table* [[grammar start tags]]
+  (let [init-states (mapvals grammar #(set (for [prod %2] [%1 (count prod) prod])))
+        close (partial close init-states)
+        state0 (-> start init-states close)
+        transitions (partial transitions close tags)]
+    [(loop [table {} todo #{state0}]
+       (if-let [state (first todo)]
+         (let [transition (transitions state)
+               table (assoc table state transition)
+               new-states (remove table (to-states transition))
+               todo (-> todo (disj state) (into new-states))]
+           (recur table todo))
+         table))
+     state0]))
+
+
 (comment
   (comment
     E -> "(" E+ ")"
@@ -139,6 +195,16 @@
     6
     E+ -> E.
     )
+
+    (def g 
+      (let [w #"\w+"]
+        {:E #{["(" :E+ ")"]
+              [w]}
+         :E+ #{[:E+ :E]
+               [:E]}}))
+  
+    (let [[t s0] (lr-table* [g :E identity])]
+      (step1 t [[s0] 0 "" []] "((hello)" false))
     
     (def t
       (let [w #"\w+"]
