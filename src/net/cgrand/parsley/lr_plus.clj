@@ -2,8 +2,9 @@
   "LR+ is LR(0) with contextual tokenizing.")
 
 ;; pushdown automaton
-(defrecord TableState [token-matcher shifts reduce gotos])
-(defn table-state [token-matcher shifts reduce goto] (TableState. token-matcher shifts reduce goto))
+(defrecord TableState [token-matcher shifts reduce gotos accept?])
+(defn table-state [token-matcher shifts reduce goto accept?] 
+  (TableState. token-matcher shifts reduce goto accept?))
 
 (defprotocol TokenMatcher
   (match [this s eof]))
@@ -87,25 +88,37 @@
     (recur (pop! stack) (dec n))
     stack))
 
-(defn step1 [table state s eof]
+(defn step1
+  "Returns [stack water-mark buffer events] where stack is the new stack,
+   water-mark the number of items at the bottom of the stack which didn't took 
+   part in this step, buffer the remaining string to be tokenized, events the
+   parsing events."
+ [table state s eof]
   (let [[stack _ rem events] state
         s (if (= "" rem) s (str rem s))]
-    (loop [stack (transient stack) events (transient events) s s wm (count stack)]
-      (let [cs (table (my-peek stack))]
-        (if-let [action (:reduce cs)]
-          (let [[sym n] action
-                stack (popN! stack n)
-                cs (table (my-peek stack))
-                wm (Math/min wm (count stack))]
-            (recur (conj! stack ((:gotos cs) sym)) (conj! events action) s wm))
-          (let [tm (:token-matcher cs)]
-            (when-let [[n id] (match tm s eof)]
-              (if (neg? n)
-                [(persistent! stack) (dec wm) s (persistent! events)]
-                (let [token (subs s 0 n)
-                      s (subs s n)
-                      wm (Math/min wm (count stack))]
-                  (recur (conj! stack ((:shifts cs) id)) (conj! events token) s wm))))))))))
+    (loop [stack (transient (or stack [::S])) events (transient events) s s wm (count stack)]
+      (when-let [cs (table (my-peek stack))]
+        (if (and (empty? s) (:accept? cs))
+          [(persistent! stack) (dec wm) "" (persistent! events)]
+          (if-let [action (:reduce cs)]
+            (let [[sym n] action
+                  stack (popN! stack n)
+                  cs (table (my-peek stack))
+                  wm (Math/min wm (count stack))]
+              (recur (conj! stack ((:gotos cs) sym)) (conj! events action) s wm))
+            (when-let [tm (:token-matcher cs)]
+              (when-let [[n id] (match tm s eof)]
+                (if (neg? n)
+                  [(persistent! stack) (dec wm) s (persistent! events)]
+                  (let [token (subs s 0 n)
+                        s (subs s n)
+                        wm (Math/min wm (count stack))]
+                    (recur (conj! stack ((:shifts cs) id)) (conj! events token) s wm)))))))))))
+
+(defn step [table state s]
+  (let [[[stack rem :as start]] state
+        [new-stack water-mark new-rem events] (step1 table [stack nil rem []] (or s "") (nil? s))]
+    [[new-stack new-rem] water-mark events start]))
 
 ;; LR+ table construction
 (defn fix-point [f init]
@@ -134,21 +147,23 @@
   (let [follows (mapvals (follow-map state) #(close %2))
         gotos (filter-keys follows keyword?)
         shifts (filter-keys (dissoc follows nil) (complement gotos))
-        reduces (follows nil)
-        reduction (when-let [[sym n] (first reduces)] [sym n (tags sym)])]
+        reduces (-> (follows nil) (disj [::S 1 nil]))
+        reduction (when-let [[sym n] (first reduces)] [sym n (tags sym)])
+        accept? (state [::S 1 nil])]
     (when (next reduces) 
       (throw (Exception. (str "reduce/reduce conflict " reduces))))
     (when (and reduction (seq shifts))
       (throw (Exception. (str "shift/reduce conflict " shifts " " reduces))))
-    (table-state (matcher (keys shifts)) shifts reduction gotos)))
+    (table-state (matcher (keys shifts)) shifts reduction gotos accept?)))
 
 (defn to-states [{:keys [gotos shifts]}]
   (concat (vals gotos) (vals shifts)))
 
-(defn lr-table* [[grammar start tags]]
-  (let [init-states (mapvals grammar #(set (for [prod %2] [%1 (count prod) prod])))
+(defn lr-table [[grammar start tags]]
+  (let [grammar (assoc grammar ::S #{[start]})
+        init-states (mapvals grammar #(set (for [prod %2] [%1 (count prod) prod])))
         close (partial close init-states)
-        state0 (-> start init-states close)
+        state0 (-> ::S init-states close)
         transitions (partial transitions close tags)]
     [(loop [table {} todo #{state0}]
        (if-let [state (first todo)]
@@ -212,7 +227,7 @@
          :E+ #{[:E+ :E]
                [:E]}}))
   
-    (let [[t s0] (lr-table* [g :E identity])]
+    (let [[t s0] (lr-table [g :E identity])]
       (step1 t [[s0] 0 "" []] "((hello)" false))
     
     (def t
