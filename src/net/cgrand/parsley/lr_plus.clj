@@ -115,6 +115,8 @@
                         wm (Math/min wm (count stack))]
                     (recur (conj! stack ((:shifts cs) id)) (conj! events token) s wm)))))))))))
 
+(def zero [[[::S] ""] 0 [] nil])
+
 (defn step [table state s]
   (let [[[stack rem :as start]] state
         [new-stack water-mark new-rem events] (step1 table [stack nil rem []] (or s "") (nil? s))]
@@ -164,16 +166,17 @@
         init-states (mapvals grammar #(set (for [prod %2] [%1 (count prod) prod])))
         close (partial close init-states)
         state0 (-> ::S init-states close)
-        transitions (partial transitions close tags)]
-    [(loop [table {} todo #{state0}]
-       (if-let [state (first todo)]
-         (let [transition (transitions state)
-               table (assoc table state transition)
-               new-states (remove table (to-states transition))
-               todo (-> todo (disj state) (into new-states))]
-           (recur table todo))
-         table))
-     state0]))
+        transitions (partial transitions close tags)
+        table (loop [table {} todo #{state0}]
+                (if-let [state (first todo)]
+                  (let [transition (transitions state)
+                        table (assoc table state transition)
+                        new-states (remove table (to-states transition))
+                        todo (-> todo (disj state) (into new-states))]
+                    (recur table todo))
+                  table))
+        table (assoc table ::S (table state0))]
+    table))
 
 
 (comment
@@ -227,8 +230,8 @@
          :E+ #{[:E+ :E]
                [:E]}}))
   
-    (let [[t s0] (lr-table [g :E identity])]
-      (step1 t [[s0] 0 "" []] "((hello)" false))
+    (let [t (lr-table [g :E identity])]
+      (step t zero "((hello)"))
     
     (def t
       (let [w #"\w+"]
