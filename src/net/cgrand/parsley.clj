@@ -44,17 +44,8 @@
         (cons [this kw (if unspaced (Unspaced. alt) alt)] 
           (collect item unspaced top-rulename)))))
 
-
 ;; 2. collect new rules
 (extend-protocol RuleFragment
-#_ (  nil
-    (unsugar [this]
-      this)
-    (collect [this unspaced top-rulename]
-      nil)
-    (develop [this rewrite space]
-      [()]))
-
   Object
     (unsugar [this]
       this)
