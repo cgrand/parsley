@@ -182,73 +182,14 @@
 
 
 (comment
-  (comment
-    E -> "(" E+ ")"
-    E -> "x"
-    E+ -> E+ E
-    E+ -> E
-    
-    0 - "(" > 1
-    0 - "x" > 5
-    E -> ."(" E+ ")"
-    E -> ."x"
-    
-    1 - E+ > 2
-    1 - E > 6
-    1 - "(" > 1
-    1 - "x" > 5
-    E -> "(" .E+ ")"
-    E+ -> .E+ E
-    E+ -> .E
-    E -> ."(" E+ ")"
-    E -> ."x"
-    
-    2 - ")" > 3
-    2 - "(" > 1
-    2 - "x" > 5
-    2 - E > 4
-    E -> "(" E+ .")"
-    E+ -> E+ .E
-    E -> ."(" E+ ")"
-    E -> ."x"
-    
-    3
-    E -> "(" E+ ")".
-    
-    4
-    E+ -> E+ E.
-    
-    5
-    E -> "x".
-    
-    6
-    E+ -> E.
-    )
-
     (def g 
-      (let [w #"\w+"]
-        {:E #{["(" :E+ ")"]
-              [w]}
-         :E+ #{[:E+ :E]
-               [:E]}}))
+      {:E #{["(" :E+ ")"]
+            [#"\w+"]}
+       :E+ #{[:E+ :E]
+             [:E]}})
   
     (let [t (lr-table [g :E identity])]
       (step t zero "((hello)"))
     
-    (def t
-      (let [w #"\w+"]
-        (vec (map #(apply table-state %)
-              [[(matcher #{"(" w}) {"(" 1 w 5} nil nil]
-               [(matcher #{"(" w}) {"(" 1 w 5} nil {:E+ 2 :E 6}]
-               [(matcher #{"(" w ")"}) {"(" 1 ")" 3 w 5} nil {:E 4}]
-               [nil nil [:E 3 :E] nil]
-               [nil nil [:E+ 2 :E+] nil]
-               [nil nil [:E 1 :E] nil]
-               [nil nil [:E+ 1 :E+] nil]]))))
-
-    (let [s (apply str "(" (repeat 5e3 "(hello(world))"))] (time (count (step1 t [[0] 0 "" []] s false))))
-
-    net.cgrand.parsley.lr-plus=> (step1 t [[0] 0 "" []] "((hello)" false)
-    [[0 1 2] "" ["(" "(" "hello" [:E 1 :E] [:E+ 1 :E+] ")" [:E 3 :E] [:E+ 1 :E+]]]
 )
 
