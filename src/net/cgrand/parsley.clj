@@ -187,14 +187,15 @@
                   inline-empty-prods)]
   [grammar public-rulenames])) 
 
-(defn stepper [table]
+(defn stepper [table options-map]
   (fn self
     ([s]
-      (let [a (self core/zero s) b (self a nil)]
-        (f/stitch a b)))
+      (let [a (self core/zero s) b (self a nil)
+            r (f/stitch a b)]
+        (f/make-node (:document-tag options-map ::root) (nth r 2))))
     ([state s]
       (core/step table state s))))
 
 (defn parser [options-map & rules]
-  (-> (grammar options-map rules) core/lr-table stepper))
+  (-> (grammar options-map rules) core/lr-table (stepper options-map)))
 
