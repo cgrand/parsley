@@ -29,10 +29,20 @@
     (collect [this unspaced top-rulename]
       (collect item true top-rulename))
     (develop [this rewrite space]
-      (rewrite item nil)))
+      (rewrite item #{[]})))
 
 (defn unspaced [& specs]
   (Unspaced. (vec specs)))
+
+(defrecord Root [item]
+  RuleFragment
+    (unsugar [this]
+      (Root. (unsugar item)))
+    (collect [this unspaced top-rulename]
+      (collect item unspaced top-rulename))
+    (develop [this rewrite space]
+      (for [s1 space x (rewrite item space) s2 (if (empty? x) #{[]} space)]
+        (concat s1 x s2))))
 
 (defrecord Repeat+ [item]
   RuleFragment
@@ -85,8 +95,8 @@
     (collect [items unspaced top-rulename]
       (mapcat #(collect % unspaced top-rulename) items))
     (develop [items rewrite space]
-      (reduce #(for [x (rewrite %2 space) xs %1] 
-                 (concat x (and space (seq x) (seq xs) [space]) xs))
+      (reduce #(for [x (rewrite %2 space) sp space xs %1] 
+                 (concat x (and (seq x) (seq xs) sp) xs))
         [()] (rseq items))))
 
 (defn collect-new-rules
@@ -106,10 +116,11 @@
   terminals and non-terminals"
  ([grammar] (normalize grammar nil {}))
  ([grammar space rewrites]
-  (letfn [(helper [item space]
-            (if-let [rw (rewrites item)]
-              [[rw]]
-              (develop item helper space)))]
+  (let [helper (fn helper [item space]
+                 (if-let [rw (rewrites item)]
+                   [[rw]]
+                   (develop item helper space)))
+        space (helper space #{[]})]
     (into {} (for [[k v] grammar] [k (set (helper v space))])))))
 
 ;; 4. remove-empty-prods
@@ -122,27 +133,22 @@
            :when (some empty? prods)]
        [k [() [k]]]))])
 
-(defn- inline-prods 
- ([prods replacement-map]
-  (inline-prods prods replacement-map #{}))
- ([prods replacement-map collapsable?]
+(defn- inline-prods [prods replacement-map]
   (letfn [(inline1 [prod]
             (if-let [[x & xs] (seq prod)]
               (for [a (replacement-map x [[x]]) b (inline1 xs)]
-                (if (and (collapsable? (last a)) (collapsable? (first b)))
-                  (concat a (rest b))
-                  (concat a b)))
+                (concat a b))
               [()]))]
-    (mapcat inline1 prods))))
+    (mapcat inline1 prods)))
 
-(defn- inline-empty-prods* [grammar space]
+(defn- inline-empty-prods* [grammar]
   (let [[grammar empty-prods] (split-empty-prods grammar)]
     (into {}
       (for [[k prods] grammar]
-        [k (-> prods (inline-prods empty-prods #{space}) set (disj [k]))]))))  
+        [k (-> prods (inline-prods empty-prods) set (disj [k]))]))))  
              
-(defn inline-empty-prods [grammar space]
-  (core/fix-point #(inline-empty-prods* % space) grammar)) 
+(defn inline-empty-prods [grammar]
+  (core/fix-point inline-empty-prods* grammar)) 
 
 
 
@@ -159,49 +165,35 @@
     kw))
 
 ;;;;;;;;;;;
-(defn grammar [options-map & rules]
+(defn grammar [options-map rules]
   (let [[options-map rules] (if-not (map? options-map)
                               [{} (cons options-map rules)]
                               [options-map rules])
         rules (partition 2 rules)
         public-rulenames (remove private? (map first rules))
-        {:keys [main space] :or {main (first public-rulenames)}} options-map
+        {:keys [main space] :or {main (first public-rulenames) space #{[]}}} 
+          options-map
         public-rulenames (set public-rulenames)
         rules (concat rules 
-                [[::main main]]
-                (when space [[::space (unspaced space)]]))
+                [[::core/S (Root. main)] [::space space]])
         grammar (into {} (for [[name specs] rules]
                            [(basename name) (unsugar specs)]))
         [rewrites grammar] (collect-new-rules grammar)
+        space (::space grammar)
+        grammar (dissoc grammar ::space)
         grammar (-> grammar 
-                  (normalize (and space ::space) rewrites) 
-                  (inline-empty-prods ::space))]
-  [grammar ::main public-rulenames])) 
+                  (normalize space rewrites) 
+                  inline-empty-prods)]
+  [grammar public-rulenames])) 
 
 (defn stepper [table]
   (fn self
     ([s]
-      (let [a (self nil s) b (self a nil)]
-        (core/stitch a b)))
+      (let [a (self core/zero s) b (self a nil)]
+        (f/stitch a b)))
     ([state s]
-      (core/step state table s))))
+      (core/step table state s))))
 
 (defn parser [options-map & rules]
-  (stepper (apply core/lr-table (apply grammar options-map rules))))
+  (-> (grammar options-map rules) core/lr-table stepper))
 
-(comment
-(def table (apply lr-table 
-             (grammar {:main [:A*]
-                       :space [" "*]}
-               :letter- #{{\a \z, \A \Z, \0 \9} \-}
-               :atom (unspaced :letter+ (?! :letter))
-               :A #{:atom [\( :A* \)]})))
-(def ttable (first table))
-(def sop [[[(second table)] [] [] nil]])
-(-> sop (step ttable "cccccc") (step1 ttable -1) prd)
-"'<A><atom>cccccc</atom></A>"
-(-> sop (step ttable "aa aa") (step1 ttable -1) prd)
-"<A><atom>aa</atom></A> <A><atom>aa</atom></A>"
-(-> sop (step ttable "(mapcat (partial collect-rules unspacedmode) (rest v))") (step1 ttable -1) prd)
-"<A>(<A><atom>mapcat</atom></A> <A>(<A><atom>partial</atom></A> <A><atom>collectrules</atom></A> <A><atom>unspacedmode</atom></A>)</A> <A>(<A><atom>rest</atom></A> <A><atom>v</atom></A>)</A>)</A>"
-)

@@ -1,5 +1,6 @@
 (ns net.cgrand.parsley.lr-plus
-  "LR+ is LR(0) with contextual tokenizing.")
+  "LR+ is LR(0) with contextual tokenizing."
+  (:require [net.cgrand.parsley.fold :as f]))
 
 ;; pushdown automaton
 (defrecord TableState [token-matcher shifts reduce gotos accept?])
@@ -120,7 +121,7 @@
 (defn step [table state s]
   (let [[[stack rem :as start]] state
         [new-stack water-mark new-rem events] (step1 table [stack nil rem []] (or s "") (nil? s))]
-    [[new-stack new-rem] water-mark events start]))
+    [[new-stack new-rem] water-mark (f/fold events) start]))
 
 ;; LR+ table construction
 (defn fix-point [f init]
@@ -149,21 +150,22 @@
   (let [follows (mapvals (follow-map state) #(close %2))
         gotos (filter-keys follows keyword?)
         shifts (filter-keys (dissoc follows nil) (complement gotos))
-        reduces (-> (follows nil) (disj [::S 1 nil]))
+        reduces (follows nil)
+        accepts (filter (fn [[s _ r]] (= ::S s)) reduces)
+        reduces (reduce disj reduces accepts)
         reduction (when-let [[sym n] (first reduces)] [sym n (tags sym)])
-        accept? (state [::S 1 nil])]
+        accept? (seq accepts)]
     (when (next reduces) 
-      (throw (Exception. (str "reduce/reduce conflict " reduces))))
+      (throw (Exception. (apply str "at state " state "\n  reduce/reduce conflict " (interpose "\n" reduces)))))
     (when (and reduction (seq shifts))
-      (throw (Exception. (str "shift/reduce conflict " shifts " " reduces))))
+      (throw (Exception. (str "at state " state "\n shift/reduce conflict " shifts "\n" reduces))))
     (table-state (matcher (keys shifts)) shifts reduction gotos accept?)))
 
 (defn to-states [{:keys [gotos shifts]}]
   (concat (vals gotos) (vals shifts)))
 
-(defn lr-table [[grammar start tags]]
-  (let [grammar (assoc grammar ::S #{[start]})
-        init-states (mapvals grammar #(set (for [prod %2] [%1 (count prod) prod])))
+(defn lr-table [[grammar tags]]
+  (let [init-states (mapvals grammar #(set (for [prod %2] [%1 (count prod) prod])))
         close (partial close init-states)
         state0 (-> ::S init-states close)
         transitions (partial transitions close tags)
