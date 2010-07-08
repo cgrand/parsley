@@ -119,9 +119,9 @@
 (def zero [[[::S] ""] 0 [] nil])
 
 (defn step [table state s]
-  (let [[[stack rem :as start]] state
-        [new-stack water-mark new-rem events] (step1 table [stack nil rem []] (or s "") (nil? s))]
-    [[new-stack new-rem] water-mark (f/fold events) start]))
+  (when-let [[[stack rem :as start]] state]
+    (when-let [[new-stack water-mark new-rem events] (step1 table [stack nil rem []] (or s "") (nil? s))]
+      [[new-stack new-rem] water-mark (f/fold events) start])))
 
 ;; LR+ table construction
 (defn fix-point [f init]
