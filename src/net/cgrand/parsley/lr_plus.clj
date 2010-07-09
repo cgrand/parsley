@@ -65,7 +65,7 @@
               (match tm s eof)))))))
 
 (defn match-prefix? [token-matcher ^String s]
-  (when-let [[n] (match token-matcher s true)]
+  (when-let [[n] (match token-matcher s false)]
     (or (neg? n) (== n (.length s)))))
 
 (defn matcher [tms]
