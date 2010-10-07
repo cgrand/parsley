@@ -43,7 +43,7 @@
       (this s eof))
   clojure.lang.APersistentSet
     (match [this s eof]
-      (let [ns (remove nil? (map #(match % s eof) this))]
+      (let [ns (filter identity (map #(match % s eof) this))]
         (cond
           (some #{[-1]} ns)
             [-1]
