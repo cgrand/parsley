@@ -15,7 +15,10 @@
   `chunk` which breaks a String into a seq of strings -- it controls the
     computational granularity of the buffer."))
 
-(defrecord Ops [chunk unit plus])
+(defrecord Ops [chunk unit plus left right cat len])
+
+(defn as-ops [& {:as options}]
+  (into (Ops. nil nil nil nil nil nil nil) options))
 
 (defmacro cond 
   "A variation on cond which sports let bindings:
@@ -67,11 +70,11 @@
 (deftype Leaf [ops val s]
   Node
   (left-cut [this offset]
-    [(subs s 0 offset)])
+    [((:left ops) s offset)])
   (right-cut [this offset]
-    [(subs s offset)])
+    [((:right ops) s offset)])
   (len [this]
-    (count s))
+    ((:len ops) s))
   (value [this] 
     val)
   (ops [this] 
@@ -83,7 +86,7 @@
 (defn group 
   "Groups a sequence of at least two nodes into a sequence of nodes with 2 or 3 children."
   [nodes]
-  (let [ops (:ops (first nodes))]
+  (let [ops (ops (first nodes))]
     (if (odd? (count nodes))
       (cons (node ops (take 3 nodes))
             (map #(node ops %) (partition 2 (drop 3 nodes))))
@@ -95,8 +98,8 @@
   [tree offset length s]
   (let [[sl & lefts] (left-cut tree offset)
         [sr & rights] (right-cut tree (+ offset length))
-        s (str sl s sr)
         ops (ops tree)
+        s ((:cat ops) sl s sr)
         leaves (map #(leaf ops %) ((:chunk ops) s))]
     (loop [[l & lefts] lefts [r & rights] rights nodes leaves]
       (let [nodes (concat l nodes r)]
@@ -107,7 +110,14 @@
 ;; repl stuff
 (defn line-chunk [^String s] (.split s "(?<=\n)"))
 
-(def str-ops (Ops. line-chunk identity str))
+(def str-ops (as-ops 
+               :chunk line-chunk
+               :unit identity 
+               :plus str 
+               :left #(subs %1 0 %2) 
+               :right subs 
+               :cat str 
+               :len count))
 
 (def E (leaf str-ops ""))
 
