@@ -1,24 +1,32 @@
 (ns net.cgrand.parsley.tree)
 
 (defprotocol Node
-  (len [node])
+  "Protocol for inner nodes and leaves of a 2-3 buffer."
+  (len [node] "Returns the length of the Node")
   (left-cut [node offset])
   (right-cut [node offset])
   (value [node])
-  (ops [node]))
+  (ops [node] "Returns a map with keys :unit, :plus and :chunk"))
 
-(defrecord Ops [chunkify unit plus])
+(defrecord Ops [chunk unit plus])
 
-(defmacro condl [& clauses]
+(defmacro cond 
+  "A variation on cond which sports let bindings:
+     (cond 
+       (odd? a) 1
+       :let [a (quot a 2]]
+       (odd? a) 2
+       :else 3)" 
+  [& clauses]
   (when-let [[test expr & clauses] (seq clauses)]
     (if (= :let test)
-      `(let ~expr (condl ~@clauses))
-      `(if ~test ~expr (condl ~@clauses)))))
+      `(let ~expr (net.cgrand.parsley.tree/cond ~@clauses))
+      `(if ~test ~expr (net.cgrand.parsley.tree/cond ~@clauses)))))
 
 (deftype InnerNode [ops val length a b c]
   Node
   (left-cut [this offset]
-    (condl
+    (cond
       :let [la (len a)]
       (<= offset la) (conj (left-cut a offset) nil)
       :let [offset (- offset la)
@@ -27,7 +35,7 @@
       :let [offset (- offset lb)]
       :else (conj (left-cut c offset) [a b])))
   (right-cut [this offset]
-    (condl
+    (cond
       :let [la (len a)]
       (< offset la) (conj (right-cut a offset) (if c [b c] [b]))
       :let [offset (- offset la)
@@ -71,14 +79,12 @@
           (map #(node ops %) (partition 2 (drop 3 nodes))))
     (map #(node ops %) (partition 2 nodes))))
 
-(defn line-chunkify [^String s] (.split s "(?<=\n)"))
-
 (defn edit [tree offset length s]
   (let [[sl & lefts] (left-cut tree offset)
         [sr & rights] (right-cut tree (+ offset length))
         s (str sl s sr)
         ops (ops tree)
-        leaves (map #(leaf ops %) ((:chunkify ops) s))]
+        leaves (map #(leaf ops %) ((:chunk ops) s))]
     (loop [[l & lefts] lefts [r & rights] rights nodes leaves]
       (let [nodes (concat l nodes r)]
         (if (next nodes)
@@ -86,8 +92,9 @@
           (first nodes))))))
 
 ;; repl stuff
+(defn line-chunk [^String s] (.split s "(?<=\n)"))
 
-(def str-ops (Ops. line-chunkify identity str))
+(def str-ops (Ops. line-chunk identity str))
 
 (def E (leaf str-ops ""))
 
