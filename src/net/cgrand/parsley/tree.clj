@@ -1,12 +1,19 @@
-(ns net.cgrand.parsley.tree)
+(ns net.cgrand.parsley.tree
+  "An incremental character buffer backed by a 2-3 tree.")
 
 (defprotocol Node
-  "Protocol for inner nodes and leaves of a 2-3 buffer."
+  "Protocol for inner nodes and leaves of a 2-3 buffer.
+   The buffer is parametrized by a triple of fns, see the ops method."
   (len [node] "Returns the length of the Node")
   (left-cut [node offset])
   (right-cut [node offset])
-  (value [node])
-  (ops [node] "Returns a map with keys :unit, :plus and :chunk"))
+  (value [node] "The result value for this node.")
+  (ops [node] "Returns a map of fns with keys :unit, :plus and :chunk.
+  `unit` turns a String into a value from the result type, 
+  `plus` (an associative fn) combines two values from the result type into
+    a value of the result type,
+  `chunk` which breaks a String into a seq of strings -- it controls the
+    computational granularity of the buffer."))
 
 (defrecord Ops [chunk unit plus])
 
@@ -73,13 +80,19 @@
 (defn leaf [ops s]
   (Leaf. ops ((:unit ops) s) s))
 
-(defn group [ops nodes]
-  (if (odd? (count nodes))
-    (cons (node ops (take 3 nodes))
-          (map #(node ops %) (partition 2 (drop 3 nodes))))
-    (map #(node ops %) (partition 2 nodes))))
+(defn group 
+  "Groups a sequence of at least two nodes into a sequence of nodes with 2 or 3 children."
+  [nodes]
+  (let [ops (:ops (first nodes))]
+    (if (odd? (count nodes))
+      (cons (node ops (take 3 nodes))
+            (map #(node ops %) (partition 2 (drop 3 nodes))))
+      (map #(node ops %) (partition 2 nodes)))))
 
-(defn edit [tree offset length s]
+(defn edit 
+  "Performs an edit on the buffer. Content from offset to offset+length (excluded) is replaced
+   by s." 
+  [tree offset length s]
   (let [[sl & lefts] (left-cut tree offset)
         [sr & rights] (right-cut tree (+ offset length))
         s (str sl s sr)
@@ -88,7 +101,7 @@
     (loop [[l & lefts] lefts [r & rights] rights nodes leaves]
       (let [nodes (concat l nodes r)]
         (if (next nodes)
-          (recur lefts rights (group ops nodes))
+          (recur lefts rights (group nodes))
           (first nodes))))))
 
 ;; repl stuff
