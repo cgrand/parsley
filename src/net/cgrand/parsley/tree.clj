@@ -3,7 +3,11 @@
 (defprotocol Node
   (len [node])
   (left-cut [node offset])
-  (right-cut [node offset]))
+  (right-cut [node offset])
+  (value [node])
+  (ops [node]))
+
+(defrecord Ops [chunkify unit plus])
 
 (defmacro condl [& clauses]
   (when-let [[test expr & clauses] (seq clauses)]
@@ -11,7 +15,7 @@
       `(let ~expr (condl ~@clauses))
       `(if ~test ~expr (condl ~@clauses)))))
 
-(deftype InnerNode [length a b c]
+(deftype InnerNode [ops val length a b c]
   Node
   (left-cut [this offset]
     (condl
@@ -30,44 +34,60 @@
       (< offset lb) (conj (right-cut b offset) (when c [c]))
       :else (conj (right-cut c offset) nil)))
   (len [this]
-    length))
+    length)
+  (value [this] 
+    val)
+  (ops [this] 
+    ops))
 
-(defn node [children]
-  (let [[a b c] children]
-    (InnerNode. (+ (len a) (len b) (if c (len c) 0)) a b c)))
+(defn node [ops children]
+  (let [[a b c] children
+        plus (:plus ops)
+        val (plus (value a) (value b))
+        val (if c (plus val (value c)) val)]
+    (InnerNode. ops val (+ (len a) (len b) (if c (len c) 0)) a b c)))
 
-(deftype Leaf [s]
+(deftype Leaf [ops val s]
   Node
   (left-cut [this offset]
     [(subs s 0 offset)])
   (right-cut [this offset]
     [(subs s offset)])
   (len [this]
-    (count s)))
+    (count s))
+  (value [this] 
+    val)
+  (ops [this] 
+    ops))
 
-(defn leaf [s]
-  (Leaf. s))
+(defn leaf [ops s]
+  (Leaf. ops ((:unit ops) s) s))
 
-(def E (leaf ""))
-
-(defn group [nodes]
+(defn group [ops nodes]
   (if (odd? (count nodes))
-    (cons (node (take 3 nodes))
-          (map node (partition 2 (drop 3 nodes))))
-    (map node (partition 2 nodes))))
+    (cons (node ops (take 3 nodes))
+          (map #(node ops %) (partition 2 (drop 3 nodes))))
+    (map #(node ops %) (partition 2 nodes))))
 
-(defn chunkify [^String s] (.split s "(?<=\n)"))
+(defn line-chunkify [^String s] (.split s "(?<=\n)"))
 
 (defn edit [tree offset length s]
   (let [[sl & lefts] (left-cut tree offset)
         [sr & rights] (right-cut tree (+ offset length))
         s (str sl s sr)
-        leaves (map leaf (chunkify s))]
+        ops (ops tree)
+        leaves (map #(leaf ops %) ((:chunkify ops) s))]
     (loop [[l & lefts] lefts [r & rights] rights nodes leaves]
       (let [nodes (concat l nodes r)]
         (if (next nodes)
-          (recur lefts rights (group nodes))
+          (recur lefts rights (group ops nodes))
           (first nodes))))))
+
+;; repl stuff
+
+(def str-ops (Ops. line-chunkify identity str))
+
+(def E (leaf str-ops ""))
 
 (defprotocol Treeable
   (tree [treeable]))
@@ -79,9 +99,9 @@
   (tree [nv] (map tree (if (.c nv) [(.a nv) (.b nv) (.c nv)] [(.a nv) (.b nv)]))))
 
 (comment
-  => (-> E (splice 0 0 "a\nb") (splice 1 0 "c") tree)
+  => (-> E (edit 0 0 "a\nb") (edit 1 0 "c") ((juxt tree value)))
   ("ac\n" "b")
-  => (-> E (splice 0 0 "a\nb") (splice 1 0 "cd") tree)
+  => (-> E (edit 0 0 "a\nb") (edit 1 0 "cd") ((juxt tree value)))
   ("acd\n" "b")
-  => (-> E (splice 0 0 "a\nb") (splice 1 0 "cd")  (splice 2 0 "\n\n") tree)
+  => (-> E (edit 0 0 "a\nb") (edit 1 0 "cd")  (edit 2 0 "\n\n") ((juxt tree value)))
   (("ac\n" "\n") ("d\n" "b")))
