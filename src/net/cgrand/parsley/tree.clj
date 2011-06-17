@@ -1,5 +1,6 @@
 (ns net.cgrand.parsley.tree
-  "An incremental buffer backed by a 2-3 tree.")
+  "An incremental buffer backed by a 2-3 tree."
+  (:use net.cgrand.parsley.util))
 
 (defprotocol Node
   "Protocol for inner nodes and leaves of a 2-3 buffer.
@@ -34,19 +35,6 @@
   (if (instance? Ops options)
     options
     (into (Ops. nil nil nil nil nil nil count) options)))
-
-(defmacro cond 
-  "A variation on cond which sports let bindings:
-     (cond 
-       (odd? a) 1
-       :let [a (quot a 2)]
-       (odd? a) 2
-       :else 3)" 
-  [& clauses]
-  (when-let [[test expr & clauses] (seq clauses)]
-    (if (= :let test)
-      `(let ~expr (net.cgrand.parsley.tree/cond ~@clauses))
-      `(if ~test ~expr (net.cgrand.parsley.tree/cond ~@clauses)))))
 
 (deftype InnerNode [ops val length a b c]
   Node
