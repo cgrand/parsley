@@ -1,37 +1,74 @@
-(ns net.cgrand.parsley.fold)
+(ns net.cgrand.parsley.fold
+  (:use net.cgrand.parsley.util))
 
-(defn- branch? [x] (and (map? x) (nil? (:tag x))))
+(defn- anonymous? [x] (and (map? x) (nil? (:tag x))))
 
 (defn nodes-vec [nodes]
-  (vec (mapcat #(->> % (tree-seq branch? :content) (remove branch?)) nodes)))
+  (reduce (fn [vecs n] (if (anonymous? n) 
+                         (into vecs (:content n)) 
+                         (conj vecs n))) [] nodes))
 
 (defn make-node [tag children]
   (if tag 
     {:tag tag :content (nodes-vec children)}
     {:tag nil :content children}))
 
-(defn fold [events]
-  (letfn [(fold-nodes [events n]
-            (loop [events events folded () n n]
-              (cond
-                (zero? n)
-                  [events folded]
-                (empty? events)
-                  [(vec folded)]
-                :else
-                  (let [event (peek events)
-                        etc (pop events)]
-                    (if-let [[_ N tag] (when (vector? event) event)]
-                      (let [[rem children] (fold-nodes etc N)]
-                        (if children
-                          (recur rem (conj folded (make-node tag children)) 
-                            (dec n))
-                          [(conj rem event)]))
-                      (recur etc (conj folded event) (dec n)))))))]
-    (first (fold-nodes events Integer/MAX_VALUE))))
+(defprotocol Folding
+  (pending [fs] "Returns a collection of pending events")
+  (complete [fs] "Returns a collection of nodes (incl. unexpected input).")
+  (nodes-count [fs] "Returns the number of regular nodes on the complete stack.")
+  (cat [fs another-fs]))
 
-(defn stitch-events [a b]
-  (fold (into a b)))
+(defn unexpected? [node] false)
+
+(defn- tail [complete n]
+  (loop [i (dec (count complete)) to-go n]
+    (cond
+      (unexpected? (nth complete i))
+        (recur (dec i) to-go)
+      :let [to-go (dec to-go)]
+      (zero? to-go)
+        (subvec complete i)
+      :else
+        (recur (dec i) to-go))))
+
+(declare empty-folding-stack)
+
+(deftype FoldingStack [pending complete ncnt]
+  Folding
+  (pending [fs] pending)
+  (complete [fs] complete)
+  (nodes-count [fs] ncnt)
+  (cat [this fs]
+    (let [that (reduce conj this (pending fs))]
+      (FoldingStack. (pending that) 
+                     (into (complete that) (complete fs))
+                     (+ ncnt (nodes-count that)))))
+  clojure.lang.Sequential
+  clojure.lang.IPersistentCollection
+  (count [this]
+         (+ (count pending) (count complete)))
+  (cons [this event]
+    (if-let [[_ N tag] (when (vector? event) event)]
+      (if (<= N ncnt)
+        (let [children (tail complete N)
+              complete (subvec complete 0 (- (count complete) (count children)))
+              complete (conj complete (make-node tag children))]
+          (FoldingStack. pending complete (inc (- ncnt N))))
+        (FoldingStack. (concat pending complete [event]) [] 0))
+      (FoldingStack. pending (conj complete event) (inc ncnt))))
+  (empty [this]
+    empty-folding-stack)
+  (equiv [this that]
+    (boolean (when (or (nil? that) (sequential? that))
+               (= (seq this) (seq that)))))
+  clojure.lang.Seqable
+  (seq [this]
+    (seq (concat pending complete)))
+  ; TODO implement hashCode and equals
+  )
+
+(def empty-folding-stack (FoldingStack. nil [] 0))
 
 (defn stitchability 
   "Returns :full, :partial or nil."
@@ -56,7 +93,7 @@
           [b-end b-watermark b-events b-start] b]
       (case (stitchability a b)
         :full [b-end (min a-watermark b-watermark) 
-               (stitch-events a-events b-events) a-start] 
+               (cat a-events b-events) a-start] 
         #_:partial #_(let [[a-stack] a-end
                        [b-start-stack] b-start
                        watermark (- (count a-stack) 
@@ -66,13 +103,4 @@
                        tail (subvec b-stack b-watermark)]
                    [[(into stub tail) b-rem] (min a-watermark watermark)
                     (stitch-events make-node a-events b-events) a-start]))))))
-
-(comment
-(defn chunk-tree [proj-fns chunks])
-
-(defn edit [chunk-tree i len s] 
-  )
-
-(set! *warn-on-reflection* true) 
-  )
 
