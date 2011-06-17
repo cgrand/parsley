@@ -1,24 +1,39 @@
 (ns net.cgrand.parsley.tree
-  "An incremental character buffer backed by a 2-3 tree.")
+  "An incremental buffer backed by a 2-3 tree.")
 
 (defprotocol Node
   "Protocol for inner nodes and leaves of a 2-3 buffer.
-   The buffer is parametrized by a triple of fns, see the ops method."
+   Leaves contain collections (or strings or anything sequential and finite).
+   The buffer maintains a reduction over all its leaves contents. 
+   The buffer is parametrized by a map of fns, see the ops method."
   (len [node] "Returns the length of the Node")
   (left-cut [node offset])
   (right-cut [node offset])
   (value [node] "The result value for this node.")
-  (ops [node] "Returns a map of fns with keys :unit, :plus and :chunk.
-  `unit` turns a String into a value from the result type, 
-  `plus` (an associative fn) combines two values from the result type into
-    a value of the result type,
-  `chunk` which breaks a String into a seq of strings -- it controls the
-    computational granularity of the buffer."))
+  (ops [node] "Returns a map of fns with keys:
+  :unit [leaf-content] 
+    turns a leaf content into a value from the result type, 
+  :plus [a b] (associative fn)
+    combines two values from the result type into a value of the result type,
+  :chunk [leaf-content]
+    breaks a leaf content into a seq of leaf contents -- it controls the computational
+    granularity of the buffer.
+  :left [leaf-content offset] 
+    returns the part of a leaf content to the left of the offset,
+  :right [leaf-content offset] 
+    returns the part of a leaf content to the right of the offset,
+  :cat [& leaf-contents]
+    returns teh concatenation of the seq of leaf-contents, with no args MUST returns the proper
+    identity element (eg \"\" for str, () or [] or nil for concat),
+  :len [leaf-content]
+    returns the length of leaf-content."))
 
-(defrecord Ops [chunk unit plus left right cat len])
+(defrecord Ops [unit plus chunk left right cat len])
 
-(defn as-ops [& {:as options}]
-  (into (Ops. nil nil nil nil nil nil nil) options))
+(defn as-ops [options]
+  (if (instance? Ops options)
+    options
+    (into (Ops. nil nil nil nil nil nil count) options)))
 
 (defmacro cond 
   "A variation on cond which sports let bindings:
@@ -107,19 +122,22 @@
           (recur lefts rights (group nodes))
           (first nodes))))))
 
-;; repl stuff
-(defn line-chunk [^String s] (.split s "(?<=\n)"))
+(defn buffer
+  ([ops]
+    (let [ops (as-ops ops)] 
+      (leaf ops ((:cat ops)))))
+  ([ops s]
+    (-> (buffer ops) (edit 0 0 s))))
 
-(def str-ops (as-ops 
-               :chunk line-chunk
-               :unit identity 
-               :plus str 
-               :left #(subs %1 0 %2) 
-               :right subs 
-               :cat str 
-               :len count))
+;;;;;;;;;;;;;;;
+(comment ; demo
 
-(def E (leaf str-ops ""))
+(def str-buffer (partial buffer {:unit identity 
+                                 :plus str 
+                                 :chunk #(.split ^String % "(?<=\n)")
+                                 :left #(subs %1 0 %2) 
+                                 :right subs 
+                                 :cat str}))
 
 (defprotocol Treeable
   (tree [treeable]))
@@ -130,10 +148,10 @@
   InnerNode
   (tree [nv] (map tree (if (.c nv) [(.a nv) (.b nv) (.c nv)] [(.a nv) (.b nv)]))))
 
-(comment
-  => (-> E (edit 0 0 "a\nb") (edit 1 0 "c") ((juxt tree value)))
+;; repl session
+  => (-> "a\nb" str-buffer (edit 1 0 "c") ((juxt tree value)))
   ("ac\n" "b")
-  => (-> E (edit 0 0 "a\nb") (edit 1 0 "cd") ((juxt tree value)))
+  => (-> "a\nb" str-buffer (edit 1 0 "cd") ((juxt tree value)))
   ("acd\n" "b")
-  => (-> E (edit 0 0 "a\nb") (edit 1 0 "cd")  (edit 2 0 "\n\n") ((juxt tree value)))
+  => (-> "a\nb" str-buffer (edit 1 0 "cd")  (edit 2 0 "\n\n") ((juxt tree value)))
   (("ac\n" "\n") ("d\n" "b")))
