@@ -39,7 +39,7 @@
   "A variation on cond which sports let bindings:
      (cond 
        (odd? a) 1
-       :let [a (quot a 2]]
+       :let [a (quot a 2)]
        (odd? a) 2
        :else 3)" 
   [& clauses]
