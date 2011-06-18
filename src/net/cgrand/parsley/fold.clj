@@ -1,5 +1,5 @@
 (ns net.cgrand.parsley.fold
-  (:use net.cgrand.parsley.util))
+  (:require [net.cgrand.parsley.util :as u]))
 
 (defn- anonymous? [x] (and (map? x) (nil? (:tag x))))
 
@@ -11,11 +11,11 @@
 (defn make-node [tag children]
   (if tag 
     {:tag tag :content (nodes-vec children)}
-    {:tag nil :content children}))
+    {:tag nil :content (nodes-vec children)}))
 
 (defprotocol Folding
-  (pending [fs] "Returns a collection of pending events")
-  (complete [fs] "Returns a collection of nodes (incl. unexpected input).")
+  (pending-events [fs] "Returns a collection of pending events")
+  (nodes [fs] "Returns a collection of nodes (incl. unexpected input).")
   (nodes-count [fs] "Returns the number of regular nodes on the complete stack.")
   (cat [fs another-fs]))
 
@@ -23,7 +23,7 @@
 
 (defn- tail [complete n]
   (loop [i (dec (count complete)) to-go n]
-    (cond
+    (u/cond
       (unexpected? (nth complete i))
         (recur (dec i) to-go)
       :let [to-go (dec to-go)]
@@ -36,27 +36,34 @@
 
 (deftype FoldingStack [pending complete ncnt]
   Folding
-  (pending [fs] pending)
-  (complete [fs] complete)
+  (pending-events [fs] pending)
+  (nodes [fs] complete)
   (nodes-count [fs] ncnt)
   (cat [this fs]
-    (let [that (reduce conj this (pending fs))]
-      (FoldingStack. (pending that) 
-                     (into (complete that) (complete fs))
-                     (+ ncnt (nodes-count that)))))
+    (if (satisfies? Folding fs)
+      (let [that (reduce conj this (pending-events fs))]
+        (FoldingStack. (pending-events that) 
+                       (into (nodes that) (nodes fs))
+                       (+ (nodes-count that) (nodes-count fs))))
+      (into this fs)))
   clojure.lang.Sequential
   clojure.lang.IPersistentCollection
   (count [this]
-         (+ (count pending) (count complete)))
+    (+ (count pending) (count complete)))
   (cons [this event]
-    (if-let [[_ N tag] (when (vector? event) event)]
-      (if (<= N ncnt)
-        (let [children (tail complete N)
-              complete (subvec complete 0 (- (count complete) (count children)))
-              complete (conj complete (make-node tag children))]
-          (FoldingStack. pending complete (inc (- ncnt N))))
-        (FoldingStack. (concat pending complete [event]) [] 0))
-      (FoldingStack. pending (conj complete event) (inc ncnt))))
+    (u/cond
+      (unexpected? event)
+        (FoldingStack. pending (conj complete event) ncnt)
+      (not (vector? event))
+        (FoldingStack. pending (conj complete event) (inc ncnt))
+      :let [[_ N tag] event]
+      (> N ncnt)
+        (FoldingStack. (concat pending complete [event]) [] 0)
+      :let [children (tail complete N)
+            complete (subvec complete 0 (- (count complete) (count children)))
+            complete (conj complete (make-node tag children))]
+      :else
+        (FoldingStack. pending complete (inc (- ncnt N)))))
   (empty [this]
     empty-folding-stack)
   (equiv [this that]
@@ -73,16 +80,16 @@
 (defn stitchability 
   "Returns :full, :partial or nil."
  [a b]
-  (let [[a-end a-watermark a-events a-start] a
-        [b-end b-watermark b-events b-start] b]
-    (cond
-      (= a-end b-start) :full
-      (let [[a-stack a-rem] a-end
-            [b-stack b-rem] b-start
-            b-tail (subvec b-stack b-watermark)
-            n (- (count a-stack) (count b-tail))
-            a-tail (when-not (neg? n) (subvec a-stack n))]
-        (and a-tail (= a-rem b-start) (= b-tail a-tail))) :partial)))
+  (u/cond
+    :let [[a-end a-watermark a-events a-start] a
+          [b-end b-watermark b-events b-start] b]
+    (= a-end b-start) :full
+    :let [[a-stack a-rem] a-end
+          [b-stack b-rem] b-start
+          b-tail (subvec b-stack b-watermark)
+          n (- (count a-stack) (count b-tail))
+          a-tail (when-not (neg? n) (subvec a-stack n))]
+    (and a-tail (= a-rem b-start) (= b-tail a-tail)) :partial))
 
 
 (defn stitch 
