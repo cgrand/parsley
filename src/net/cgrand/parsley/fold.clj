@@ -13,13 +13,16 @@
     {:tag tag :content (nodes-vec children)}
     {:tag nil :content (nodes-vec children)}))
 
+(defn make-unexpected [s]
+  {:tag ::unexpected :content [s]})
+
 (defprotocol Folding
   (pending-events [fs] "Returns a collection of pending events")
   (nodes [fs] "Returns a collection of nodes (incl. unexpected input).")
   (nodes-count [fs] "Returns the number of regular nodes on the complete stack.")
   (cat [fs another-fs]))
 
-(defn unexpected? [node] false)
+(defn unexpected? [node] (= (:tag node) ::unexpected))
 
 (defn- tail [complete n]
   (loop [i (dec (count complete)) to-go n]
