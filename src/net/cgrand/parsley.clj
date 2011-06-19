@@ -199,3 +199,13 @@
 (defn parser [options-map & rules]
   (-> (grammar options-map rules) core/lr-table (stepper options-map)))
 
+(defn memoize1 [parser s]
+  (let [cache (atom nil)]
+    (fn [input]
+      (let [last-result @cache
+            st (and last-result (f/stitchability input last-result))]
+        (if (= :full st)
+          last-result
+          (let [new-result (parser input s)]
+            (reset! cache new-result)
+            new-result))))))
