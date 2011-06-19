@@ -67,13 +67,17 @@
   (empty [this]
     empty-folding-queue)
   (equiv [this that]
-    (boolean (when (or (nil? that) (sequential? that))
-               (= (seq this) (seq that)))))
+    (boolean (and (satisfies? Folding that) (= pending (pending-events that))
+                  (= complete (nodes that)))))
   clojure.lang.Seqable
   (seq [this]
     (seq (concat pending complete)))
-  ; TODO implement hashCode and equals
-  )
+  Object
+  (hashCode [this]
+    (hash-combine (hash pending) complete))
+  (equals [this that]
+    (boolean (and (satisfies? Folding that) (.equals pending (pending-events that))
+                  (.equals complete (nodes that))))))
 
 (def empty-folding-queue (FoldingQueue. nil [] 0))
 
