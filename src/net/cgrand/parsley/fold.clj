@@ -116,5 +116,5 @@
                        [b-stack b-rem] b-end
                        tail (subvec b-stack b-watermark)]
                    [[(into stub tail) b-rem] (min a-watermark watermark)
-                    (stitch-events make-node a-events b-events) a-start]))))))
-
+                    (stitch-events make-node a-events b-events) a-start])
+        nil)))))
