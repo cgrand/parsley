@@ -32,9 +32,9 @@
       :else
         (recur (dec i) to-go))))
 
-(declare empty-folding-stack)
+(declare empty-folding-queue)
 
-(deftype FoldingStack [pending complete ncnt]
+(deftype FoldingQueue [pending complete ncnt]
   Folding
   (pending-events [fs] pending)
   (nodes [fs] complete)
@@ -42,7 +42,7 @@
   (cat [this fs]
     (if (satisfies? Folding fs)
       (let [that (reduce conj this (pending-events fs))]
-        (FoldingStack. (pending-events that) 
+        (FoldingQueue. (pending-events that) 
                        (into (nodes that) (nodes fs))
                        (+ (nodes-count that) (nodes-count fs))))
       (into this fs)))
@@ -53,19 +53,19 @@
   (cons [this event]
     (u/cond
       (unexpected? event)
-        (FoldingStack. pending (conj complete event) ncnt)
+        (FoldingQueue. pending (conj complete event) ncnt)
       (not (vector? event))
-        (FoldingStack. pending (conj complete event) (inc ncnt))
+        (FoldingQueue. pending (conj complete event) (inc ncnt))
       :let [[_ N tag] event]
       (> N ncnt)
-        (FoldingStack. (concat pending complete [event]) [] 0)
+        (FoldingQueue. (concat pending complete [event]) [] 0)
       :let [children (tail complete N)
             complete (subvec complete 0 (- (count complete) (count children)))
             complete (conj complete (make-node tag children))]
       :else
-        (FoldingStack. pending complete (inc (- ncnt N)))))
+        (FoldingQueue. pending complete (inc (- ncnt N)))))
   (empty [this]
-    empty-folding-stack)
+    empty-folding-queue)
   (equiv [this that]
     (boolean (when (or (nil? that) (sequential? that))
                (= (seq this) (seq that)))))
@@ -75,7 +75,7 @@
   ; TODO implement hashCode and equals
   )
 
-(def empty-folding-stack (FoldingStack. nil [] 0))
+(def empty-folding-queue (FoldingQueue. nil [] 0))
 
 (defn stitchability 
   "Returns :full, :partial or nil."

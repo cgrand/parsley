@@ -122,12 +122,12 @@
                       wm (Math/min wm (count stack))]
                   (recur (conj! stack ((:shifts cs) id)) (conj events token) s wm)))))))))
 
-(def zero [[[::S] ""] 0 f/empty-folding-stack nil])
+(def zero [[[::S] ""] 0 f/empty-folding-queue nil])
 
 (defn step [table state s]
   (u/when-let [[[stack rem :as start]] state
                [new-stack water-mark new-rem events] 
-               (step1 table [stack nil rem f/empty-folding-stack] (or s "") (nil? s))]
+               (step1 table [stack nil rem f/empty-folding-queue] (or s "") (nil? s))]
     [[new-stack new-rem] water-mark events start]))
 
 ;; LR+ table construction
