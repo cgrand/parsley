@@ -9,7 +9,8 @@
 (ns net.cgrand.parsley
   "An experimental undocumented parser lib/DSL."
   (:require [net.cgrand.parsley.lr-plus :as core]
-    [net.cgrand.parsley.fold :as f]))
+            [net.cgrand.parsley.fold :as f]
+            [net.cgrand.parsley.tree :as t]))
 
 ;; A grammar consists of a map of keywords to:
 ;; * vectors (sequence)
@@ -199,13 +200,43 @@
 (defn parser [options-map & rules]
   (-> (grammar options-map rules) core/lr-table (stepper options-map)))
 
-(defn memoize1 [parser s]
+(defn- memoize-parser [f]
   (let [cache (atom nil)]
     (fn [input]
       (let [last-result @cache
             st (and last-result (f/stitchability input last-result))]
         (if (= :full st)
           last-result
-          (let [new-result (parser input s)]
+          (let [new-result (f input)]
+(println "cache miss")
             (reset! cache new-result)
             new-result))))))
+
+(defn- memoize1 [parser s]
+  (memoize-parser #(parser % s)))
+
+(defn- memoize2 [mpa mpb]
+  (memoize-parser #(let [a (mpa %)
+                         b (mpb a)]
+                     (f/stitch a b))))
+
+(defn incremental-buffer [parser]
+  {:buffer
+     (t/buffer {:unit #(memoize1 parser %) 
+                :plus memoize2 
+                :chunk #(.split ^String % "(?<=\n)")
+                :left #(subs %1 0 %2) 
+                :right subs 
+                :cat str})
+   :eof-parser (memoize1 parser nil)})
+
+(defn edit [incremental-buffer offset length s]
+  (update-in incremental-buffer [:buffer] t/edit offset length s))
+
+(defn parse-tree [incremental-buffer]
+  (let [f (t/value (:buffer incremental-buffer))
+        a (f core/zero)
+        b ((:eof-parser incremental-buffer) a)]
+    (when-let [x (f/stitch a b)]
+      (f/make-node ::root (nth x 2))))) ; TODO use the :root-tag option
+
