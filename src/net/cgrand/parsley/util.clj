@@ -10,7 +10,8 @@
       `(let [test# ~(bindings 1)]
          (if test#
            (let [~(bindings 0) test#]
-             (if-let ~(subvec bindings 2) ~then ~else))))
+             (if-let ~(subvec bindings 2) ~then ~else))
+           ~else))
       then)))
 
 (defmacro when-let
