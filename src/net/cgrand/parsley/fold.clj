@@ -32,8 +32,7 @@
       :let [to-go (dec to-go)]
       (zero? to-go)
         (subvec complete i)
-      :else
-        (recur (dec i) to-go))))
+      (recur (dec i) to-go))))
 
 (declare empty-folding-queue)
 
@@ -65,8 +64,7 @@
       :let [children (tail complete N)
             complete (subvec complete 0 (- (count complete) (count children)))
             complete (conj complete (make-node tag children))]
-      :else
-        (FoldingQueue. pending complete (inc (- ncnt N)))))
+      (FoldingQueue. pending complete (inc (- ncnt N)))))
   (empty [this]
     empty-folding-queue)
   (equiv [this that]
@@ -84,8 +82,14 @@
 
 (def empty-folding-queue (FoldingQueue. nil [] 0))
 
+(defmethod print-method FoldingQueue [fq, ^java.io.Writer w]
+  (.write w "#<FoldingQueue ")
+  (.write w (pr-str (seq fq)))
+  (.write w ">"))
+
 (defn stitchability 
-  "Returns :full, :partial or nil."
+  "Returns :full, or a number (the number of states on A stack which remains untouched)
+   when rebasing is possible or nil."
  [a b]
   (u/cond
     :let [[a-end a-watermark a-events a-start] a
@@ -96,25 +100,26 @@
           b-tail (subvec b-stack b-watermark)
           n (- (count a-stack) (count b-tail))
           a-tail (when-not (neg? n) (subvec a-stack n))]
-    (and a-tail (= a-rem b-start) (= b-tail a-tail)) :partial))
+    (and a-tail (= a-rem b-rem) (= b-tail a-tail))
+      n))
 
+(defn rebase [b a]
+  (u/cond
+    :when-let [st (stitchability a b)] 
+    (= :full st) b
+    ; if it's not full, it's partial
+    :let [[a-end] a
+          [b-end b-watermark b-events] b
+          [a-stack] a-end
+          [b-stack b-rem] b-end
+          b-tail (subvec b-stack b-watermark)
+          watermark st
+          a-stub (subvec a-stack 0 watermark)]
+    [[(into (vec a-stub) b-tail) b-rem] watermark b-events a-end]))
 
 (defn stitch 
- ([a b] (stitch a b make-node))
- ([a b make-node]
+ [a b]
   (when (and a b)
     (let [[a-end a-watermark a-events a-start] a
           [b-end b-watermark b-events b-start] b]
-      (case (stitchability a b)
-        :full [b-end (min a-watermark b-watermark) 
-               (cat a-events b-events) a-start] 
-        #_:partial #_(let [[a-stack] a-end
-                       [b-start-stack] b-start
-                       watermark (- (count a-stack) 
-                                   (- (count b-start-stack) b-watermark)) 
-                       stub (subvec a-stack 0 watermark)
-                       [b-stack b-rem] b-end
-                       tail (subvec b-stack b-watermark)]
-                   [[(into stub tail) b-rem] (min a-watermark watermark)
-                    (stitch-events make-node a-events b-events) a-start])
-        nil)))))
+      [b-end (min a-watermark b-watermark) (cat a-events b-events) a-start])))

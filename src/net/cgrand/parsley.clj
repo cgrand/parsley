@@ -203,14 +203,20 @@
 (defn- memoize-parser [f]
   (let [cache (atom nil)]
     (fn [input]
-      (let [last-result @cache
-            st (and last-result (f/stitchability input last-result))]
-        (if (= :full st)
-          last-result
-          (let [new-result (f input)]
-(println "cache miss")
-            (reset! cache new-result)
-            new-result))))))
+      (u/cond
+        [last-result @cache
+         new-result (f/rebase last-result input)]
+          (if (identical? last-result new-result)
+            last-result
+            (do
+              (println "rebase")
+              (reset! cache new-result)
+              new-result))
+        :let [new-result (f input)]
+        (do
+          (prn "cache miss")
+          (reset! cache new-result)
+          new-result)))))
 
 (defn- memoize1 [parser s]
   (memoize-parser #(parser % s)))
