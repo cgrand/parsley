@@ -10,7 +10,8 @@
   "An experimental undocumented parser lib/DSL."
   (:require [net.cgrand.parsley.lr-plus :as core]
             [net.cgrand.parsley.fold :as f]
-            [net.cgrand.parsley.tree :as t]))
+            [net.cgrand.parsley.tree :as t]
+            [net.cgrand.parsley.util :as u]))
 
 ;; A grammar consists of a map of keywords to:
 ;; * vectors (sequence)
