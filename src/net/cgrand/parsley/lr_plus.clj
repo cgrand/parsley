@@ -206,11 +206,18 @@
 (defn number-states [table]
   (let [table-without-start (dissoc table 0)
         mapping (zipmap (cons 0 (keys table-without-start)) (range))
-        renum (fn [m] (reduce #(update-in %1 [%2] mapping) m (keys m)))]
+        renum (fn [m] (reduce #(update-in %1 [%2] mapping) m (keys m)))
+        syms (set (keep #(-> % :reduce first) (vals table)))
+        syms-mapping (zipmap syms (range))
+        empty-goto (vec (repeat (count syms) nil))
+        renum-gotosyms (fn [goto] (reduce (fn [goto [sym state]]
+                                            (assoc goto (syms-mapping sym) state))
+                                       empty-goto goto))]
     (vec
       (for [{shifts :shifts gotos :gotos :as v} 
             (cons (get table 0) (vals table-without-start))]
-        (assoc v :shifts (renum shifts) :gotos (renum gotos))))))
+        (assoc v :reduce (when-let [[sym n tag] (:reduce v)] [(syms-mapping sym) n tag])
+               :shifts (renum shifts) :gotos (-> gotos renum renum-gotosyms))))))
 
 (comment
     (def g 
