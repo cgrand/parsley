@@ -53,7 +53,9 @@
           :else 
             (first ns)))))
 
-(defrecord CompoundTokenMatcher [ascii-dispatch tm]
+(declare eq-ctm)
+
+(deftype CompoundTokenMatcher [^objects ascii-dispatch tm]
   TokenMatcher
     (match [this s eof]
       (u/cond
@@ -62,9 +64,18 @@
           (match tm s eof)
         :let [cp (.codePointAt s 0)]
         (< cp (int 128))
-          (when-let [tm (nth ascii-dispatch cp)]
+          (when-let [tm (aget ascii-dispatch cp)]
             (match tm s eof))
-        (match tm s eof))))
+        (match tm s eof)))
+  Object
+    (hashCode [_] (.hashCode tm))
+    (equals [this that]
+      (boolean (eq-ctm this that)))
+    (toString [_] (str "#<CompoundTokenMatcher " tm">")))
+
+(defn- eq-ctm [^CompoundTokenMatcher this that]
+  (and (instance? CompoundTokenMatcher that) 
+       (= (.tm this) (.tm ^CompoundTokenMatcher that))))
 
 (defn match-prefix? [token-matcher ^String s]
   (when-let [[n] (match token-matcher s false)]
@@ -73,13 +84,14 @@
 (defn matcher [tms]
   (when (seq tms)
     (if (next tms)
-      (let [qtable (vec (map (fn [cp] 
-                     (let [s (str (char cp)) 
-                           tms (filter #(match-prefix? % s) tms)]
-                       (when (seq tms)
-                         (if (next tms)
-                           (set tms)
-                           (first tms))))) (range 128)))]
+      (let [qtable (to-array
+                     (map (fn [cp] 
+                            (let [s (str (char cp)) 
+                                  tms (filter #(match-prefix? % s) tms)]
+                              (when (seq tms)
+                                (if (next tms)
+                                  (set tms)
+                                  (first tms))))) (range 128)))]
         (CompoundTokenMatcher. qtable (set tms)))
       (first tms))))
 
