@@ -178,7 +178,7 @@
           options-map
         public-rulenames (set public-rulenames)
         rules (concat rules 
-                [[::core/S (Root. main)] [::space (unspaced space)]])
+                [[::S (Root. main)] [::space (unspaced space)]])
         grammar (into {} (for [[name specs] rules]
                            [(basename name) (unsugar specs)]))
         [rewrites grammar] (collect-new-rules grammar)

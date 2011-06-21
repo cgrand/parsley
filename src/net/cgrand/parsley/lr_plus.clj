@@ -111,7 +111,7 @@
  [table state s eof]
   (let [[stack _ rem events] state
         s (if (= "" rem) s (str rem s))]
-    (loop [stack (transient (or stack [::S])) events events s s wm (count stack)]
+    (loop [stack (transient (or stack [0])) events events s s wm (count stack)]
       (u/cond
         :when-let [cs (table (my-peek stack))]
           (and (empty? s) (:accept? cs))
@@ -134,7 +134,7 @@
             (recur stack (conj events (f/make-unexpected (subs s 0 1)))
                    (subs s 1) wm))))))
 
-(def zero [[[::S] ""] 0 f/empty-folding-queue nil])
+(def zero [[[0] ""] 0 f/empty-folding-queue nil])
 
 (defn step [table state s]
   (u/when-let [[[stack rem :as start]] state
@@ -171,7 +171,7 @@
           gotos (filter-keys follows keyword?)
           shifts (filter-keys (dissoc follows nil) (complement gotos))
           reduces (follows nil)
-          accepts (filter (fn [[s _ r]] (= ::S s)) reduces)
+          accepts (filter (fn [[s _ r]] (= 0 s)) reduces)
           reduces (reduce disj reduces accepts)
           reduction (when-let [[sym n] (first reduces)] [sym n (tags sym)])
           accept? (and (seq accepts) true)]
@@ -185,9 +185,11 @@
   (concat (vals gotos) (vals shifts)))
 
 (defn lr-table [[grammar tags]]
-  (let [init-states (mapvals grammar #(set (for [prod %2] [%1 (count prod) prod])))
+  (let [grammar (-> grammar (dissoc :net.cgrand.parsley/S) 
+                  (assoc 0 (:net.cgrand.parsley/S grammar)))
+        init-states (mapvals grammar #(set (for [prod %2] [%1 (count prod) prod])))
         close (partial close init-states)
-        state0 (-> ::S init-states close)
+        state0 (-> 0 init-states close)
         transitions (partial transitions close tags)
         table (loop [table {} todo #{state0}]
                 (if-let [state (first todo)]
@@ -197,8 +199,8 @@
                         todo (-> todo (disj state) (into new-states))]
                     (recur table todo))
                   table))
-        ;; TODO think harder about ::S and state0 being the same thing
-        table (assoc table ::S (assoc (table state0) :accept? true))]
+        ;; TODO think harder about 0 and state0 being the same thing
+        table (assoc table 0 (assoc (table state0) :accept? true))]
     table))
 
 (comment
