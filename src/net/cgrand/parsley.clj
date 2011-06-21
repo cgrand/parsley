@@ -199,7 +199,8 @@
       (core/step table state s))))
 
 (defn parser [options-map & rules]
-  (-> (grammar options-map rules) core/lr-table (stepper options-map)))
+  (-> (grammar options-map rules) core/lr-table 
+    core/number-states (stepper options-map)))
 
 (defn- memoize-parser [f]
   (let [cache (atom nil)]

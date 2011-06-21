@@ -71,7 +71,7 @@
     (hashCode [_] (.hashCode tm))
     (equals [this that]
       (boolean (eq-ctm this that)))
-    (toString [_] (str "#<CompoundTokenMatcher " tm">")))
+    (toString [_] (str tm)))
 
 (defn- eq-ctm [^CompoundTokenMatcher this that]
   (and (instance? CompoundTokenMatcher that) 
@@ -202,6 +202,15 @@
         ;; TODO think harder about 0 and state0 being the same thing
         table (assoc table 0 (assoc (table state0) :accept? true))]
     table))
+
+(defn number-states [table]
+  (let [table-without-start (dissoc table 0)
+        mapping (zipmap (cons 0 (keys table-without-start)) (range))
+        renum (fn [m] (reduce #(update-in %1 [%2] mapping) m (keys m)))]
+    (vec
+      (for [{shifts :shifts gotos :gotos :as v} 
+            (cons (get table 0) (vals table-without-start))]
+        (assoc v :shifts (renum shifts) :gotos (renum gotos))))))
 
 (comment
     (def g 
