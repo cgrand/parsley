@@ -114,25 +114,25 @@
     (loop [stack (transient (or stack [0])) events events s s wm (count stack)]
       (u/cond
         :when-let [cs (table (my-peek stack))]
-          (and (empty? s) (:accept? cs))
-        [(persistent! stack) (dec wm) "" events]
-          [action (:reduce cs)]
-            (let [[sym n] action
-                  stack (popN! stack n)
-                  cs (table (my-peek stack))
+        (and (empty? s) (:accept? cs))
+          [(persistent! stack) (dec wm) "" events]
+        [action (:reduce cs)]
+          (let [[sym n] action
+                stack (popN! stack n)
+                cs (table (my-peek stack))
+                wm (Math/min wm (count stack))]
+            (recur (conj! stack ((:gotos cs) sym)) (conj events action) s wm))
+        :when-let [tm (:token-matcher cs)]
+        [[n id] (match tm s eof)]
+          (if (neg? n)
+            [(persistent! stack) (dec wm) s events]
+            (let [token (subs s 0 n)
+                  s (subs s n)
                   wm (Math/min wm (count stack))]
-              (recur (conj! stack ((:gotos cs) sym)) (conj events action) s wm))
-          :when-let [tm (:token-matcher cs)]
-          [[n id] (match tm s eof)]
-            (if (neg? n)
-                [(persistent! stack) (dec wm) s events]
-                (let [token (subs s 0 n)
-                      s (subs s n)
-                      wm (Math/min wm (count stack))]
-                  (recur (conj! stack ((:shifts cs) id)) (conj events token) s wm)))
-          (when-not (empty? s) 
-            (recur stack (conj events (f/make-unexpected (subs s 0 1)))
-                   (subs s 1) wm))))))
+              (recur (conj! stack ((:shifts cs) id)) (conj events token) s wm)))
+        (when-not (empty? s) 
+          (recur stack (conj events (f/make-unexpected (subs s 0 1)))
+                 (subs s 1) wm))))))
 
 (def zero [[[0] ""] 0 f/empty-folding-queue nil])
 
