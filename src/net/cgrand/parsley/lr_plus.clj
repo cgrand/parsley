@@ -162,7 +162,7 @@
           accepts (filter (fn [[s _ r]] (= ::S s)) reduces)
           reduces (reduce disj reduces accepts)
           reduction (when-let [[sym n] (first reduces)] [sym n (tags sym)])
-          accept? (seq accepts)]
+          accept? (and (seq accepts) true)]
     (next reduces) 
       (throw (Exception. (apply str "at state " state "\n  reduce/reduce conflict " (interpose "\n" reduces))))
     (and reduction (seq shifts))
@@ -185,9 +185,9 @@
                         todo (-> todo (disj state) (into new-states))]
                     (recur table todo))
                   table))
-        table (assoc table ::S (table state0))]
+        ;; TODO think harder about ::S and state0 being the same thing
+        table (assoc table ::S (assoc (table state0) :accept? true))]
     table))
-
 
 (comment
     (def g 
