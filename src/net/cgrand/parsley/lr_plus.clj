@@ -108,10 +108,11 @@
    water-mark the number of items at the bottom of the stack which didn't took 
    part in this step, buffer the remaining string to be tokenized, events the
    parsing events."
- [table state s eof]
-  (let [[stack _ rem events] state
+ [table stack rem s]
+  (let [eof (nil? s)
+        s (or s "")
         s (if (= "" rem) s (str rem s))]
-    (loop [stack (transient (or stack [0])) events events s s wm (count stack)]
+    (loop [stack (transient (or stack [0])) events f/empty-folding-queue s s wm (count stack)]
       (u/cond
         :when-let [cs (table (my-peek stack))]
         (and (empty? s) (:accept? cs))
@@ -134,12 +135,12 @@
           (recur stack (conj events (f/make-unexpected (subs s 0 1)))
                  (subs s 1) wm))))))
 
-(def zero [[[0] ""] 0 f/empty-folding-queue nil])
+(def zero [[[0] ""] 0 nil nil])
 
 (defn step [table state s]
   (u/when-let [[[stack rem :as start]] state
                [new-stack water-mark new-rem events] 
-               (step1 table [stack nil rem f/empty-folding-queue] (or s "") (nil? s))]
+                 (step1 table stack rem s)]
     [[new-stack new-rem] water-mark events start]))
 
 ;; LR+ table construction
