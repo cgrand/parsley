@@ -77,9 +77,11 @@
   (and (instance? CompoundTokenMatcher that) 
        (= (.tm this) (.tm ^CompoundTokenMatcher that))))
 
-(defn match-prefix? [token-matcher ^String s]
-  (when-let [[n] (match token-matcher s false)]
-    (or (neg? n) (== n (.length s)))))
+(defn prefix-matcher [token-matcher ^String s]
+  (u/cond
+    :when-let [[n :as r] (match token-matcher s false)]
+    (neg? n) token-matcher
+    (constantly r)))
 
 (defn matcher [tms]
   (when (seq tms)
@@ -87,7 +89,7 @@
       (let [qtable (to-array
                      (map (fn [cp] 
                             (let [s (str (char cp)) 
-                                  tms (filter #(match-prefix? % s) tms)]
+                                  tms (filter #(prefix-matcher % s) tms)]
                               (when (seq tms)
                                 (if (next tms)
                                   (set tms)
