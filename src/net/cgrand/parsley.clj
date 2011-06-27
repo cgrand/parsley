@@ -210,15 +210,8 @@
          new-result (f/rebase last-result input)]
           (if (identical? last-result new-result)
             last-result
-            (do
-              (println "rebase")
-              (reset! cache new-result)
-              new-result))
-        :let [new-result (f input)]
-        (do
-          (prn "cache miss")
-          (reset! cache new-result)
-          new-result)))))
+            (reset! cache new-result))
+        (reset! cache (f input))))))
 
 (defn- memoize1 [parser s]
   (memoize-parser #(parser % s)))
