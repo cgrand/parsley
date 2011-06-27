@@ -42,9 +42,11 @@
         `(let ~expr (cond ~@more-clauses))
         (if (= :when-let test)
           `(when-let ~expr (cond ~@more-clauses))
-          (if (vector? test)
-            `(if-let ~test ~expr (cond ~@more-clauses))
-            `(if ~test ~expr (cond ~@more-clauses)))))
+          (if (= :when test)
+            `(when ~expr (cond ~@more-clauses))
+            (if (vector? test)
+              `(if-let ~test ~expr (cond ~@more-clauses))
+            `(if ~test ~expr (cond ~@more-clauses))))))
       test)))
 
 
