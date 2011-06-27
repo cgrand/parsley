@@ -4,9 +4,14 @@
 (defn- anonymous? [x] (and (map? x) (nil? (:tag x))))
 
 (defn nodes-vec [nodes]
-  (reduce (fn [vecs n] (if (anonymous? n) 
-                         (into vecs (:content n)) 
-                         (conj vecs n))) [] nodes))
+  (case (count nodes)
+    1 (let [[x] nodes]
+        (if (anonymous? x)
+          (:content x)
+          nodes))
+    (reduce (fn [vecs n] (if (anonymous? n) 
+                           (into vecs (:content n)) 
+                           (conj vecs n))) [] nodes)))
 
 (defn make-node [tag children]
   (if tag 
