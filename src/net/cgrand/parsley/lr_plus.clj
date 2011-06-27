@@ -17,7 +17,7 @@
       (cond
         (.isEmpty s)
           (when-not eof [-1])
-        (= (.charAt s 0) this)
+        (== (int (.charAt s 0)) (int (.charValue this)))
           [1 this] 
         :else
           nil))
@@ -180,7 +180,7 @@
           reduction (when-let [[sym n] (first reduces)] [sym n (tags sym)])
           accept? (and (seq accepts) true)]
     (next reduces) 
-      (throw (Exception. (apply str "at state " state "\n  reduce/reduce conflict " (interpose "\n" reduces))))
+      (throw (Exception. ^String (apply str "at state " state "\n  reduce/reduce conflict " (interpose "\n" reduces))))
     (and reduction (seq shifts))
       (throw (Exception. (str "at state " state "\n shift/reduce conflict " shifts "\n" reduces)))
     (table-state (matcher (keys shifts)) shifts reduction gotos accept?)))
