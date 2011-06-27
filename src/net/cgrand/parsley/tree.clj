@@ -53,7 +53,7 @@
       (< offset la) (conj (right-cut a offset) (if c [b c] [b]))
       :let [offset (- offset la)
             lb (len b)]
-      (< offset lb) (conj (right-cut b offset) (when c [c]))
+      (or (< offset lb) (nil? c)) (conj (right-cut b offset) (when c [c]))
       :let [offset (- offset lb)]
       :else (conj (right-cut c offset) nil)))
   (len [this]
