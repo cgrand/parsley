@@ -1,7 +1,8 @@
 (ns net.cgrand.parsley.lr-plus
   "LR+ is LR(0) with contextual tokenizing."
   (:require [net.cgrand.parsley.fold :as f]
-            [net.cgrand.parsley.util :as u]))
+            [net.cgrand.parsley.util :as u]
+            [net.cgrand.parsley.stack :as st]))
 
 ;; pushdown automaton
 (defrecord TableState [token-matcher shifts reduce gotos accept?])
@@ -114,40 +115,41 @@
   (let [eof (nil? s)
         s (or s "")
         s (if (= "" rem) s (str rem s))
-        fq (f/folding-queue)]
-    (loop [stack (transient (or stack [0])) s s wm (count stack)]
+        fq (f/folding-queue)
+        stack (st/stack (or stack [0]))]
+    (loop [s s]
       (u/cond
-        :when-let [state (my-peek stack)
+        :when-let [state (st/peek! stack)
                    cs (table state)]
         (and (empty? s) (:accept? cs))
-          [(persistent! stack) (dec wm) "" @fq]
+          [@stack "" @fq]
         [action (:reduce cs)]
           (let [[sym n] action
-                stack (popN! stack n)
-                cs (table (my-peek stack))
-                wm (min wm (count stack))]
+                cs (-> stack (st/popN! n) st/peek! table)]
             (f/push! fq action)
-            (recur (conj! stack ((:gotos cs) sym)) s wm))
+            (st/push! stack ((:gotos cs) sym))
+            (recur s))
         :when-let [tm (:token-matcher cs)]
         [[n id] (match tm s eof)]
           (if (neg? n)
-            [(persistent! stack) (dec wm) s @fq]
+            [@stack s @fq]
             (let [token (subs s 0 n)
                   s (subs s n)
                   state ((:shifts cs) id)]
               (f/push! fq token)
-              (recur (conj! stack state) s wm)))
+              (st/push! stack state)
+              (recur s)))
         (when-not (empty? s)
           (f/push! fq (f/make-unexpected (subs s 0 1)))
-          (recur stack (subs s 1) wm))))))
+          (recur (subs s 1)))))))
 
 (def zero [[[0] ""] 0 nil nil])
 
 (defn step [table state s]
   (u/when-let [[[stack rem :as start]] state
-               [new-stack water-mark new-rem events] 
+               [{:keys [watermark stack]} rem events] 
                  (step1 table stack rem s)]
-    [[new-stack new-rem] water-mark events start]))
+    [[stack rem] watermark events start]))
 
 ;; LR+ table construction
 (defn fix-point [f init]
