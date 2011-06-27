@@ -1,6 +1,6 @@
 (ns net.cgrand.parsley.tree
   "An incremental buffer backed by a 2-3 tree."
-  (:use net.cgrand.parsley.util))
+  (:require [net.cgrand.parsley.util :as u]))
 
 (defprotocol Node
   "Protocol for inner nodes and leaves of a 2-3 buffer.
@@ -39,7 +39,7 @@
 (deftype InnerNode [ops val length a b c]
   Node
   (left-cut [this offset]
-    (cond
+    (u/cond
       :let [la (len a)]
       (<= offset la) (conj (left-cut a offset) nil)
       :let [offset (- offset la)
@@ -48,7 +48,7 @@
       :let [offset (- offset lb)]
       :else (conj (left-cut c offset) [a b])))
   (right-cut [this offset]
-    (cond
+    (u/cond
       :let [la (len a)]
       (< offset la) (conj (right-cut a offset) (if c [b c] [b]))
       :let [offset (- offset la)
