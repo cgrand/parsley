@@ -96,12 +96,12 @@
           [b-end b-watermark b-events b-start] b]
     (= a-end b-start) :full
     :let [[a-stack a-rem] a-end
-          [b-stack b-rem] b-start
-          b-tail (subvec b-stack b-watermark)
-          n (- (count a-stack) (count b-tail))
-          a-tail (when-not (neg? n) (subvec a-stack n))]
-    (and a-tail (= a-rem b-rem) (= b-tail a-tail))
-      n))
+          [b-stack b-rem] b-start]
+    :when (= a-rem b-rem)
+    :let [b-tail (subvec b-stack b-watermark)
+          n (- (count a-stack) (count b-tail))]
+    :when (not (neg? n)) 
+    (= b-tail (subvec a-stack n)) n))
 
 (defn rebase [b a]
   (u/cond
@@ -113,9 +113,8 @@
           [a-stack] a-end
           [b-stack b-rem] b-end
           b-tail (subvec b-stack b-watermark)
-          watermark st
-          a-stub (subvec a-stack 0 watermark)]
-    [[(into (vec a-stub) b-tail) b-rem] watermark b-events a-end]))
+          a-stub (subvec a-stack 0 st)]
+    [[(into (vec a-stub) b-tail) b-rem] st b-events a-end]))
 
 (defn stitch 
  [a b]
