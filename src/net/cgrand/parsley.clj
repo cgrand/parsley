@@ -194,7 +194,7 @@
     ([s]
       (let [a (self core/zero s) b (self a nil)]
         (when-let [r (f/stitch a b)]
-          (f/make-node (:root-tag options-map ::root) (nth r 2)))))
+          (f/make-node (:root-tag options-map ::root) (:nodes (nth r 2))))))
     ([state s]
       (core/step table state s))))
 

@@ -16,76 +16,62 @@
 (defn make-unexpected [s]
   {:tag ::unexpected :content [s]})
 
-(defprotocol Folding
-  (pending-events [fs] "Returns a collection of pending events")
-  (nodes [fs] "Returns a collection of nodes (incl. unexpected input).")
-  (nodes-count [fs] "Returns the number of regular nodes on the complete stack.")
-  (cat [fs another-fs]))
-
-(defn unexpected? [node] (= (:tag node) ::unexpected))
-
-(defn- tail [complete n]
-  (loop [i (dec (count complete)) to-go n]
+(defn- tail! [^java.util.ArrayList nodes n]
+  (loop [i (dec (.size nodes)) to-go n]
     (u/cond
-      (unexpected? (nth complete i))
+      (unexpected? (.get nodes i))
         (recur (dec i) to-go)
       :let [to-go (dec to-go)]
       (zero? to-go)
-        (subvec complete i)
+        (let [tail (.subList nodes i (.size nodes))
+              r (vec tail)]
+          (.clear tail)
+          r)
       (recur (dec i) to-go))))
 
-(declare empty-folding-queue)
+(defprotocol EphemeralFolding
+  (push! [this event]))
 
-(deftype FoldingQueue [pending complete ncnt]
-  Folding
-  (pending-events [fs] pending)
-  (nodes [fs] complete)
-  (nodes-count [fs] ncnt)
-  (cat [this fs]
-    (if (satisfies? Folding fs)
-      (let [that (reduce conj this (pending-events fs))]
-        (FoldingQueue. (pending-events that) 
-                       (into (nodes that) (nodes fs))
-                       (+ (nodes-count that) (nodes-count fs))))
-      (into this fs)))
-  clojure.lang.Sequential
-  clojure.lang.IPersistentCollection
-  (count [this]
-    (+ (count pending) (count complete)))
-  (cons [this event]
+(deftype FoldingQueue [^java.util.ArrayList pending ^java.util.ArrayList nodes 
+                       ^:unsynchronized-mutable ^long n]
+  EphemeralFolding
+  (push! [this event]
     (u/cond
-      (unexpected? event)
-        (FoldingQueue. pending (conj complete event) ncnt)
+      (unexpected? event) (.add nodes event)
       (not (vector? event))
-        (FoldingQueue. pending (conj complete event) (inc ncnt))
-      :let [[_ N tag] event]
-      (> N ncnt)
-        (FoldingQueue. (concat pending complete [event]) [] 0)
-      :let [children (tail complete N)
-            complete (subvec complete 0 (- (count complete) (count children)))
-            complete (conj complete (make-node tag children))]
-      (FoldingQueue. pending complete (inc (- ncnt N)))))
-  (empty [this]
-    empty-folding-queue)
-  (equiv [this that]
-    (boolean (and (satisfies? Folding that) (= pending (pending-events that))
-                  (= complete (nodes that)))))
-  clojure.lang.Seqable
-  (seq [this]
-    (seq (concat pending complete)))
-  Object
-  (hashCode [this]
-    (hash-combine (hash pending) complete))
-  (equals [this that]
-    (boolean (and (satisfies? Folding that) (.equals pending (pending-events that))
-                  (.equals complete (nodes that))))))
+        (do 
+          (.add nodes event)
+          (set! n (inc n)))
+      :let [[_ N tag] event
+            N (long N)]
+      (> N n)
+        (do
+          (doto pending
+            (.add (vec nodes))
+            (.add event))
+          (.clear nodes)
+          (set! n 0))
+      (let [children (tail! nodes N)]
+        (.add nodes (make-node tag children))
+        (set! n (inc (- n N)))))
+    this)
+  clojure.lang.IDeref
+  (deref [this]
+    {:pending (vec pending) :nodes (vec nodes) :n n}))
 
-(def empty-folding-queue (FoldingQueue. nil [] 0))
+(defn unexpected? [node] (= (:tag node) ::unexpected))
 
-(defmethod print-method FoldingQueue [fq, ^java.io.Writer w]
-  (.write w "#<FoldingQueue ")
-  (.write w (pr-str (seq fq)))
-  (.write w ">"))
+(defn folding-queue 
+  ([] (FoldingQueue. (java.util.ArrayList.) (java.util.ArrayList.) 0))
+  ([{:keys [pending nodes n]}] 
+    (FoldingQueue. (java.util.ArrayList. ^java.util.Collection pending)
+                   (java.util.ArrayList. ^java.util.Collection nodes) n)))
+
+(defn cat [a b]
+  (let [fq (folding-queue a)
+        fq (reduce push! fq (:pending b))
+        fq (reduce push! fq (:nodes b))]
+    @fq))
 
 (defn stitchability 
   "Returns :full, or a number (the number of states on A stack which remains untouched)
