@@ -21,6 +21,8 @@
 (defn make-unexpected [s]
   {:tag ::unexpected :content [s]})
 
+(defn unexpected? [node] (= (:tag node) ::unexpected))
+
 (defn- tail! [^java.util.ArrayList nodes n]
   (loop [i (dec (.size nodes)) to-go n]
     (u/cond
@@ -63,8 +65,6 @@
   clojure.lang.IDeref
   (deref [this]
     {:pending (vec pending) :nodes (vec nodes) :n n}))
-
-(defn unexpected? [node] (= (:tag node) ::unexpected))
 
 (defn folding-queue 
   ([] (FoldingQueue. (java.util.ArrayList.) (java.util.ArrayList.) 0))
