@@ -52,7 +52,7 @@
       (> N n)
         (do
           (doto pending
-            (.add (vec nodes))
+            (.addAll nodes)
             (.add event))
           (.clear nodes)
           (set! n 0))

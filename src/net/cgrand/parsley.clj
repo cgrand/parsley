@@ -239,5 +239,5 @@
         a (f core/zero)
         b ((:eof-parser incremental-buffer) a)]
     (when-let [x (f/stitch a b)]
-      (f/make-node ::root (nth x 2))))) ; TODO use the :root-tag option
+      (f/make-node ::root (:nodes (nth x 2)))))) ; TODO use the :root-tag option
 
