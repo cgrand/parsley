@@ -13,13 +13,25 @@
                            (into vecs (:content n)) 
                            (conj vecs n))) [] nodes)))
 
+(defn nodes-vec [nodes]
+  (case (count nodes)
+    1 (let [[x] nodes]
+        (if (anonymous? x)
+          (recur (:content x))
+          nodes))
+    (persistent! 
+      (reduce (fn this [v n] 
+                (if (anonymous? n) 
+                  (reduce this v (:content n))
+                  (conj! v n))) (transient []) nodes))))
+
+(defrecord Node [tag content])
+
 (defn make-node [tag children]
-  (if tag 
-    {:tag tag :content (nodes-vec children)}
-    {:tag nil :content (nodes-vec children)}))
+  (Node. tag (if tag (nodes-vec children) children)))
 
 (defn make-unexpected [s]
-  {:tag ::unexpected :content [s]})
+  (make-node ::unexpected [s]))
 
 (defn unexpected? [node] (= (:tag node) ::unexpected))
 
