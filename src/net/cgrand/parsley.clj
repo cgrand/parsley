@@ -194,7 +194,7 @@
     ([s]
       (let [a (self core/zero s) b (self a nil)]
         (when-let [r (f/stitch a b)]
-          (f/make-node (:root-tag options-map ::root) (:nodes (nth r 2))))))
+          (f/make-node (:root-tag options-map ::root) (to-array (:nodes (nth r 2)))))))
     ([state s]
       (core/step table state s))))
 
@@ -239,5 +239,5 @@
         a (f core/zero)
         b ((:eof-parser incremental-buffer) a)]
     (when-let [x (f/stitch a b)]
-      (f/make-node ::root (:nodes (nth x 2)))))) ; TODO use the :root-tag option
+      (f/make-node ::root (to-array (:nodes (nth x 2))))))) ; TODO use the :root-tag option
 

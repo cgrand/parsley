@@ -1,52 +1,47 @@
 (ns net.cgrand.parsley.fold
   (:require [net.cgrand.parsley.util :as u]))
 
-(defn- anonymous? [x] (and (map? x) (nil? (:tag x))))
+(defrecord Anonymous [content])
 
-(defn nodes-vec [nodes]
-  (case (count nodes)
-    1 (let [[x] nodes]
-        (if (anonymous? x)
-          (:content x)
-          nodes))
-    (reduce (fn [vecs n] (if (anonymous? n) 
-                           (into vecs (:content n)) 
-                           (conj vecs n))) [] nodes)))
-
-(defn nodes-vec [nodes]
-  (case (count nodes)
-    1 (let [[x] nodes]
-        (if (anonymous? x)
-          (recur (:content x))
-          nodes))
-    (persistent! 
-      (reduce (fn this [v n] 
-                (if (anonymous? n) 
-                  (reduce this v (:content n))
-                  (conj! v n))) (transient []) nodes))))
+(defn nodes-vec [^objects nodes]
+  (case (alength nodes)
+    1 (let [x (aget nodes 0)]
+        (if (instance? Anonymous x)
+          (recur (.content ^Anonymous x))
+          (vec nodes)))
+    (if (reduce #(or %1 (anonymous? %2)) false nodes)
+      (persistent! 
+        (reduce (fn this [v n] 
+                  (if (instance? Anonymous n) 
+                    (reduce this v (:content n))
+                    (conj! v n)))
+                (transient []) nodes))
+      (vec nodes))))
 
 (defrecord Node [tag content])
 
 (defn make-node [tag children]
-  (Node. tag (if tag (nodes-vec children) children)))
+  (if tag
+    (Node. tag (nodes-vec children))
+    (Anonymous. children)))
 
 (defn make-unexpected [s]
-  (make-node ::unexpected [s]))
+  (make-node ::unexpected (to-array [s])))
 
 (defn unexpected? [node] (= (:tag node) ::unexpected))
 
 (defn- tail! [^java.util.ArrayList nodes n]
-  (loop [i (dec (.size nodes)) to-go n]
+  (loop [i (unchecked-dec (.size nodes)) to-go (long n)]
     (u/cond
       (unexpected? (.get nodes i))
-        (recur (dec i) to-go)
-      :let [to-go (dec to-go)]
+        (recur (unchecked-dec i) to-go)
+      :let [to-go (unchecked-dec to-go)]
       (zero? to-go)
         (let [tail (.subList nodes i (.size nodes))
-              r (vec tail)]
+              r (.toArray tail)]
           (.clear tail)
           r)
-      (recur (dec i) to-go))))
+      (recur (unchecked-dec i) to-go))))
 
 (defprotocol EphemeralFolding
   (push! [this event]))
