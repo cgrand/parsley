@@ -47,7 +47,7 @@
   (push! [this event]))
 
 (deftype FoldingQueue [^java.util.ArrayList pending ^java.util.ArrayList nodes 
-                       ^:unsynchronized-mutable ^long n]
+                       ^{:unsynchronized-mutable true, :tag 'long} n]
   EphemeralFolding
   (push! [this event]
     (u/cond
