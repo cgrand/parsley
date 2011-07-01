@@ -98,14 +98,6 @@
         (CompoundTokenMatcher. qtable (set tms)))
       (first tms))))
 
-(defn my-peek [v]
-  (nth v (unchecked-dec (.count #^clojure.lang.Counted v))))
-
-(defn popN! [stack n]
-  (if (pos? n)
-    (recur (pop! stack) (dec n))
-    stack))
-
 (defn step1
   "Returns [stack water-mark buffer events] where stack is the new stack,
    water-mark the number of items at the bottom of the stack which didn't took 
