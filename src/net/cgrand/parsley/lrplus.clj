@@ -20,7 +20,7 @@
   Character
     (match [this ^String s eof]
       (cond
-        (.isEmpty s)
+        (zero? (.length s))
           (when-not eof [-1])
         (== (int (.charAt s 0)) (int (.charValue this)))
           [1 this] 
@@ -65,7 +65,7 @@
     (match [this s eof]
       (u/cond
         :let [^String s s]
-        (.isEmpty s)
+        (zero? (.length s))
           (match tm s eof)
         :let [cp (.codePointAt s 0)]
         (< cp (int 128))
