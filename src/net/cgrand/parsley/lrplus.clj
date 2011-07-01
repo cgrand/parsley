@@ -113,11 +113,11 @@
         s (if (= "" rem) s (str rem s))
         fq (f/folding-queue ops)
         stack (st/stack (or stack [0]))]
-    (loop [s s]
+    (loop [^String s s]
       (u/cond
         :when-let [state (st/peek! stack)
                    cs (table state)]
-        (and (empty? s) (:accept? cs))
+        (and (zero? (.length s)) (:accept? cs))
           [@stack "" @fq]
         [action (:reduce cs)]
           (let [[sym n tag] action
