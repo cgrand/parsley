@@ -4,6 +4,10 @@
             [net.cgrand.parsley.util :as u]
             [net.cgrand.parsley.stack :as st]))
 
+; I independently figured out the sale technique as the one described
+; in this paper: Context-Aware Scanning for Parsing Extensible Languages
+; http://www.umsec.umn.edu/publications/Context-Aware-Scanning-Parsing-Extensible-Language
+
 ;; pushdown automaton
 (defrecord TableState [token-matcher shifts reduce gotos accept?])
 (defn table-state [token-matcher shifts reduce goto accept?] 
