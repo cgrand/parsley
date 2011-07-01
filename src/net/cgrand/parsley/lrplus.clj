@@ -1,4 +1,4 @@
-(ns net.cgrand.parsley.lr-plus
+(ns net.cgrand.parsley.lrplus
   "LR+ is LR(0) with contextual tokenizing."
   (:require [net.cgrand.parsley.fold :as f]
             [net.cgrand.parsley.util :as u]
