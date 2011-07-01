@@ -8,7 +8,7 @@
 
 (ns net.cgrand.parsley
   "An experimental undocumented parser lib/DSL."
-  (:require [net.cgrand.parsley.lr-plus :as core]
+  (:require [net.cgrand.parsley.lrplus :as core]
             [net.cgrand.parsley.fold :as f]
             [net.cgrand.parsley.tree :as t]
             [net.cgrand.parsley.util :as u]))
