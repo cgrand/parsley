@@ -1,89 +1,73 @@
 (ns net.cgrand.parsley.fold
   (:require [net.cgrand.parsley.util :as u]))
 
-(defrecord Anonymous [content])
-
-(defn nodes-vec [^objects nodes]
-  (case (alength nodes)
-    1 (let [x (aget nodes 0)]
-        (if (instance? Anonymous x)
-          (recur (.content ^Anonymous x))
-          (vec nodes)))
-    (if (reduce #(or %1 (anonymous? %2)) false nodes)
-      (persistent! 
-        (reduce (fn this [v n] 
-                  (if (instance? Anonymous n) 
-                    (reduce this v (:content n))
-                    (conj! v n)))
-                (transient []) nodes))
-      (vec nodes))))
-
-(defrecord Node [tag content])
-
-(defn make-node [tag children]
-  (if tag
-    (Node. tag (nodes-vec children))
-    (Anonymous. children)))
-
-(defn make-unexpected [s]
-  (make-node ::unexpected (to-array [s])))
-
-(defn unexpected? [node] (= (:tag node) ::unexpected))
-
-(defn- tail! [^java.util.ArrayList nodes n]
-  (loop [i (unchecked-dec (.size nodes)) to-go (long n)]
-    (u/cond
-      (unexpected? (.get nodes i))
-        (recur (unchecked-dec i) to-go)
-      :let [to-go (unchecked-dec to-go)]
-      (zero? to-go)
-        (let [tail (.subList nodes i (.size nodes))
-              r (.toArray tail)]
-          (.clear tail)
-          r)
-      (recur (unchecked-dec i) to-go))))
-
 (defprotocol EphemeralFolding
-  (push! [this event]))
+  (unexpected! [this s])
+  (node! [this tag n])
+  (leaf! [this s])
+  (cat! [this pfq]))
+
+; nodes is a collection of nodes (returned by make-node)
+; pending is an alternate collection of tag, coll of nodes, integer
 
 (deftype FoldingQueue [^java.util.ArrayList pending ^java.util.ArrayList nodes 
-                       ^{:unsynchronized-mutable true, :tag 'long} n]
+                       ^java.util.ArrayList offsets
+                       make-node make-leaf make-unexpected]
   EphemeralFolding
-  (push! [this event]
-    (u/cond
-      (unexpected? event) (.add nodes event)
-      (not (vector? event))
-        (do 
-          (.add nodes event)
-          (set! n (inc n)))
-      :let [[_ N tag] event
-            N (long N)]
-      (> N n)
-        (do
-          (doto pending
-            (.addAll nodes)
-            (.add event))
-          (.clear nodes)
-          (set! n 0))
-      (let [children (tail! nodes N)]
-        (.add nodes (make-node tag children))
-        (set! n (inc (- n N)))))
+  (unexpected! [this s]
+    (when make-unexpected
+      (.add nodes (make-unexpected s))
+      this))
+  (node! [this tag N]
+    (let [n (.size offsets)]
+      (u/cond 
+        (> N n)
+          (do
+            (doto pending
+              (.add tag)
+              (.add nodes)
+              (.add (- N n)))
+            (.clear nodes)
+            (.clear offsets))
+        :let [m (- n N)
+              offset (.get offsets m)
+              _ (-> offsets (.subList (inc m) n) .clear)]
+        tag
+          (let [tail (.subList nodes offset (.size nodes))
+                children (vec (.toArray tail))]
+            (.clear tail)
+            (.add nodes (make-node tag children))))
+      this))
+  (leaf! [this s]
+    (let [leaf (if make-leaf (make-leaf s) s)
+          offset (.size nodes)]
+      (.add offsets offset)
+      (.add nodes leaf)
+      this))
+  (cat! [this pfq]
+    (doseq [[tag pnodes n] (partition 3 (:pending pfq))]
+      (.addAll nodes pnodes)
+      (.node! this tag n))
+    (let [n (.size nodes)] 
+      (.addAll nodes (:nodes pfq))
+      (doseq [offset (:offsets pfq)]
+        (.add offsets (+ n offset))))
     this)
   clojure.lang.IDeref
   (deref [this]
-    {:pending (vec pending) :nodes (vec nodes) :n n}))
+    {:pending (vec pending) :nodes (vec nodes) :offsets (vec offsets)
+     :make-node make-node :make-leaf make-leaf :make-unexpected make-unexpected}))
 
 (defn folding-queue 
-  ([] (FoldingQueue. (java.util.ArrayList.) (java.util.ArrayList.) 0))
-  ([{:keys [pending nodes n]}] 
-    (FoldingQueue. (java.util.ArrayList. ^java.util.Collection pending)
-                   (java.util.ArrayList. ^java.util.Collection nodes) n)))
+  [{:keys [pending nodes offsets make-node make-leaf make-unexpected]
+    :or {pending [] nodes [] offsets []}}] 
+  (FoldingQueue. (java.util.ArrayList. ^java.util.Collection pending)
+                 (java.util.ArrayList. ^java.util.Collection nodes)
+                 (java.util.ArrayList. ^java.util.Collection offsets)
+                 make-node make-leaf make-unexpected))
 
 (defn cat [a b]
-  (let [fq (folding-queue a)
-        fq (reduce push! fq (:pending b))
-        fq (reduce push! fq (:nodes b))]
-    @fq))
+  @(cat! (folding-queue a) b))
 
 (defn stitchability 
   "Returns :full, or a number (the number of states on A stack which remains untouched)

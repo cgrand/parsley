@@ -189,14 +189,25 @@
                   inline-empty-prods)]
   [grammar public-rulenames])) 
 
+(defrecord Node [tag content]) ; for memory
+
 (defn stepper [table options-map]
-  (fn self
-    ([s]
-      (let [a (self core/zero s) b (self a nil)]
-        (when-let [r (f/stitch a b)]
-          (f/make-node (:root-tag options-map ::root) (to-array (:nodes (nth r 2)))))))
-    ([state s]
-      (core/step table state s))))
+  (let [ops (merge
+              {:make-node #(Node. %1 %2) 
+               :make-leaf nil ; nil for identity
+               :make-unexpected #(Node. ::unexpected [%1])
+               :root-tag ::root}
+              (select-keys options-map [:make-node :make-leaf :make-unexpected]))
+        options-map (merge options-map ops)
+        make-node (:make-node options-map)]
+    ^{::options options-map} ; feeling dirty, metadata mamke me uneasy
+    (fn self
+      ([s]
+        (let [a (self core/zero s) b (self a nil)]
+          (when-let [r (f/stitch a b)]
+            (make-node (:root-tag options-map) (:nodes (nth r 2))))))
+      ([state s]
+        (core/step table ops state s)))))
 
 (defn parser [options-map & rules]
   (-> (grammar options-map rules) core/lr-table 
@@ -229,7 +240,8 @@
                 :left #(subs %1 0 %2) 
                 :right subs 
                 :cat str})
-   :eof-parser (memoize1 parser nil)})
+   :eof-parser (memoize1 parser nil)
+   :options (meta parser)})
 
 (defn edit [incremental-buffer offset length s]
   (update-in incremental-buffer [:buffer] t/edit offset length s))
@@ -237,7 +249,8 @@
 (defn parse-tree [incremental-buffer]
   (let [f (t/value (:buffer incremental-buffer))
         a (f core/zero)
-        b ((:eof-parser incremental-buffer) a)]
+        b ((:eof-parser incremental-buffer) a)
+        {:keys [make-node root-tag]} (-> incremental-buffer :options)]
     (when-let [x (f/stitch a b)]
-      (f/make-node ::root (to-array (:nodes (nth x 2))))))) ; TODO use the :root-tag option
+      (make-node root-tag (:nodes (nth x 2)))))) 
 

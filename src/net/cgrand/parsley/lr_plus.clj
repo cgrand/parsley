@@ -111,11 +111,11 @@
    water-mark the number of items at the bottom of the stack which didn't took 
    part in this step, buffer the remaining string to be tokenized, events the
    parsing events."
- [table stack rem s]
+ [table ops stack rem s]
   (let [eof (nil? s)
         s (or s "")
         s (if (= "" rem) s (str rem s))
-        fq (f/folding-queue)
+        fq (f/folding-queue ops)
         stack (st/stack (or stack [0]))]
     (loop [s s]
       (u/cond
@@ -124,9 +124,9 @@
         (and (empty? s) (:accept? cs))
           [@stack "" @fq]
         [action (:reduce cs)]
-          (let [[sym n] action
+          (let [[sym n tag] action
                 cs (-> stack (st/popN! n) st/peek! table)]
-            (f/push! fq action)
+            (f/node! fq tag n)
             (st/push! stack ((:gotos cs) sym))
             (recur s))
         :when-let [tm (:token-matcher cs)]
@@ -136,19 +136,19 @@
             (let [token (subs s 0 n)
                   s (subs s n)
                   state ((:shifts cs) id)]
-              (f/push! fq token)
+              (f/leaf! fq token)
               (st/push! stack state)
               (recur s)))
         (when-not (empty? s)
-          (f/push! fq (f/make-unexpected (subs s 0 1)))
+          (f/unexpected! fq (subs s 0 1))
           (recur (subs s 1)))))))
 
 (def zero [[[0] ""] 0 nil nil])
 
-(defn step [table state s]
+(defn step [table ops state s]
   (u/when-let [[[stack rem :as start]] state
                [{:keys [watermark stack]} rem events] 
-                 (step1 table stack rem s)]
+                 (step1 table ops stack rem s)]
     [[stack rem] watermark events start]))
 
 ;; LR+ table construction
