@@ -58,6 +58,20 @@
           :else 
             (first ns)))))
 
+(deftype UnionMatcher [^objects matchers]
+  TokenMatcher
+  (match [this s eof]
+    (loop [i (alength matchers) r nil]
+      (u/cond
+        (zero? i) r
+        :let [i (unchecked-dec i)
+              m (aget matchers i)
+              mr (match m s eof)]
+        (= [-1] mr) [-1]
+        (and r mr) 
+          (throw (Exception. (str "Ambiguous match for " (pr-str s) " by " (pr-str this))))
+        (recur i (or r mr))))))
+
 (declare eq-ctm)
 
 (deftype CompoundTokenMatcher [^objects ascii-dispatch tm]
@@ -97,7 +111,7 @@
                                   tms (filter #(prefix-matcher % s) tms)]
                               (when (seq tms)
                                 (if (next tms)
-                                  (set tms)
+                                  (UnionMatcher. (to-array (set tms)))
                                   (first tms))))) (range 128)))]
         (CompoundTokenMatcher. qtable (set tms)))
       (first tms))))
