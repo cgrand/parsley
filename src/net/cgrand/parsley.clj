@@ -241,7 +241,7 @@
                 :right subs 
                 :cat str})
    :eof-parser (memoize1 parser nil)
-   :options (meta parser)})
+   :options (::options (meta parser))})
 
 (defn edit [incremental-buffer offset length s]
   (update-in incremental-buffer [:buffer] t/edit offset length s))
