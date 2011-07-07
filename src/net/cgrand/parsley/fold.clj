@@ -25,7 +25,7 @@
           (do
             (doto pending
               (.add tag)
-              (.add nodes)
+              (.add (vec nodes))
               (.add (- N n)))
             (.clear nodes)
             (.clear offsets))
