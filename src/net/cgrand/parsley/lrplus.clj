@@ -4,19 +4,24 @@
             [net.cgrand.parsley.util :as u]
             [net.cgrand.parsley.stack :as st]))
 
+(alias 'p 'net.cgrand.parsley) ; avoid circular dependency
+
 ; I independently figured out the sale technique as the one described
 ; in this paper: Context-Aware Scanning for Parsing Extensible Languages
 ; http://www.umsec.umn.edu/publications/Context-Aware-Scanning-Parsing-Extensible-Language
 
 ;; pushdown automaton
-(defrecord TableState [token-matcher shifts reduce gotos accept?])
-(defn table-state [token-matcher shifts reduce goto accept?] 
-  (TableState. token-matcher shifts reduce goto accept?))
+(defrecord TableState [token-matcher shifts reduce gotos accept eof])
+(defn table-state [token-matcher shifts reduce goto accept & [eof]] 
+  (TableState. token-matcher shifts reduce goto accept eof))
 
 (defprotocol TokenMatcher
   (match [this s eof]))
 
 (extend-protocol TokenMatcher
+  nil
+    (match [this ^String s eof]
+      nil)
   Character
     (match [this ^String s eof]
       (cond
@@ -116,30 +121,42 @@
         (CompoundTokenMatcher. qtable (set tms)))
       (first tms))))
 
+(defn- count-unexpected [tm s eof]
+  (loop [n 1]
+    (let [suf (subs s n)] 
+      (if (or (match tm suf eof) (empty? suf))
+        n
+        (recur (inc n))))))
+
 (defn step1
   "Returns [stack water-mark buffer events] where stack is the new stack,
    water-mark the number of items at the bottom of the stack which didn't took 
    part in this step, buffer the remaining string to be tokenized, events the
    parsing events."
  [table ops stack rem s]
+  (when (nil? stack)
+    (throw (IllegalStateException. "Can't accept more input past EOF.")))
   (let [eof (nil? s)
         s (or s "")
         s (if (= "" rem) s (str rem s))
         fq (f/folding-queue ops)
-        stack (st/stack (or stack [0]))]
+        stack (st/stack stack)]
     (loop [^String s s]
       (u/cond
         :when-let [state (st/peek! stack)
                    cs (table state)]
-        (and (zero? (.length s)) (:accept? cs))
-          [@stack "" @fq]
-        [action (:reduce cs)]
-          (let [[sym n tag] action
-                cs (-> stack (st/popN! n) st/peek! table)]
+        [[sym n tag] (and (zero? (.length s)) (:accept cs))] 
+          (if eof
+            (do
+              (f/node! fq tag n)
+              [(assoc @stack :stack nil) "" @fq])
+            [@stack "" @fq])
+        [[sym n tag] (:reduce cs)]
+          (let [cs (-> stack (st/popN! n) st/peek! table)]
             (f/node! fq tag n)
             (st/push! stack ((:gotos cs) sym))
             (recur s))
-        :when-let [tm (:token-matcher cs)]
+        :let [tm (:token-matcher cs)]
         [[n id] (match tm s eof)]
           (if (neg? n)
             [@stack s @fq]
@@ -149,9 +166,16 @@
               (f/leaf! fq token)
               (st/push! stack state)
               (recur s)))
-        (when-not (empty? s)
-          (f/unexpected! fq (subs s 0 1))
-          (recur (subs s 1)))))))
+        (not (empty? s)) ; unexpected input
+          (let [n (count-unexpected tm s eof)]
+            (f/unexpected! fq (subs s 0 n))
+            (recur (subs s n)))
+        ; unexpected eof
+        (let [[sym n tag] (:eof cs)
+              cs (-> stack (st/popN! n) st/peek! table)
+              _ (f/node! fq tag n)]
+          (st/push! stack ((:gotos cs) sym))
+          (recur s))))))
 
 (def zero [[[0] ""] 0 nil nil])
 
@@ -172,7 +196,7 @@
   (into {} (for [kv map :when (pred (key kv))] kv)))
 
 (defn follow-map [state]
-  (apply merge-with into 
+  (apply merge-with into {}
     (for [[k n prod] state] {(first prod) #{[k n (next prod)]}})))
 
 (defn transitions [close tags state]
@@ -184,20 +208,21 @@
           accepts (filter (fn [[s _ r]] (= 0 s)) reduces)
           reduces (reduce disj reduces accepts)
           reduction (when-let [[sym n] (first reduces)] [sym n (tags sym)])
-          accept? (and (seq accepts) true)]
+          accept (when-let [[sym n] (first accepts)] [sym n (tags sym)])]
     (next reduces) 
       (throw (Exception. ^String (apply str "at state " state "\n  reduce/reduce conflict " (interpose "\n" reduces))))
     (and reduction (seq shifts))
       (throw (Exception. (str "at state " state "\n shift/reduce conflict " shifts "\n" reduces)))
-    (table-state (matcher (keys shifts)) shifts reduction gotos accept?)))
+    (table-state (matcher (keys shifts)) shifts reduction gotos accept)))
 
 (defn to-states [{:keys [gotos shifts]}]
   (concat (vals gotos) (vals shifts)))
 
-(defn lr-table [[grammar tags]]
-  (let [grammar (-> grammar (dissoc :net.cgrand.parsley/S) 
-                  (assoc 0 (:net.cgrand.parsley/S grammar)))
-        init-states (mapvals grammar #(set (for [prod %2] [%1 (count prod) prod])))
+(defn lr-table [[grammar tags matches-empty]]
+  (let [grammar (-> grammar (dissoc ::p/S) 
+                  (assoc 0 (::p/S grammar)))
+        tags (assoc tags 0 (tags ::p/S))
+        init-states (u/map-vals grammar #(set (for [prod %2] [%1 (count prod) prod])))
         close (partial close init-states)
         state0 (-> 0 init-states close)
         transitions (partial transitions close tags)
@@ -209,16 +234,62 @@
                         todo (-> todo (disj state) (into new-states))]
                     (recur table todo))
                   table))
-        ;; TODO think harder about 0 and state0 being the same thing
-        table (assoc table 0 (assoc (table state0) :accept? true))]
+        table (assoc table 0 (assoc (table state0) :accept (when matches-empty
+                                                             [0 -1 (tags 0)])))
+        ; state0 is unreachable by construction
+        table (dissoc table state0)]
     table))
+
+(defn- eof-reduction [state]
+  (reduce (fn [[mk mn :as best] [k n prod]]
+            (let [n (- n (count prod))]
+              (if (and best (>= mn n)) best [k n])))
+          nil state))
+
+(defn- unfinished-state [public accept n]
+  (let [state #{[::p/unfinished (inc n) nil]}
+        state-id [::p/unfinished (boolean public) (boolean accept) n]
+        transitions (transitions identity (if public #{::p/unfinished} #{}) state)
+        transitions (if accept 
+                      (assoc transitions :accept [::p/unfinished -1 ::p/unfinished])
+                      transitions)]
+    [state-id transitions]))
+
+(defn totalize [table]
+  ;; I wanted to make table the only input of totalize
+  ;; that's why the tags map is recomputed
+  (let [tags (into {} (for [transition (vals table)
+                            :let [[k _ tag] (or (:reduce transition) (:accept transition))]
+                            :when tag] 
+                        [k tag]))]
+    (reduce 
+      (fn [table [state transition]]
+        (u/cond
+          (:reduce transition)
+            table
+          (= 0 state)
+            (let [table (if-not (:accept transition)
+                          (assoc-in table [state :accept] [::p/unfinished -1 ::p/unfinished])
+                          table)
+                  [ustate utransition :as ust] (unfinished-state (tags 0) true 0)
+                  table (assoc-in table [state :gotos ::p/unfinished] ustate)]
+              (conj table ust))
+          :let [[k n] (eof-reduction state)
+                tag (when (tags k) ::p/unfinished)
+                [ustate utransition :as ust] (unfinished-state tag (= 0 k) n)]
+          (conj table ust
+                [state (-> transition
+                         (assoc :eof [::p/unfinished n tag])
+                         (assoc-in [:gotos ::p/unfinished] ustate))])))
+    table table)))
 
 (defn number-states [table]
   (let [table-without-start (dissoc table 0)
         mapping (zipmap (cons 0 (keys table-without-start)) (range))
         renum (fn [m] (reduce #(update-in %1 [%2] mapping) m (keys m)))
-        syms (set (keep #(-> % :reduce first) (vals table)))
+        syms (set (for [v (vals table) [x] [(:reduce v) (:eof v) (:accept v)] :when x] x))
         syms-mapping (zipmap syms (range))
+        renum-action #(when-let [[sym n tag] %] [(syms-mapping sym) n tag])
         empty-goto (vec (repeat (count syms) nil))
         renum-gotosyms (fn [goto] (reduce (fn [goto [sym state]]
                                             (assoc goto (syms-mapping sym) state))
@@ -226,8 +297,12 @@
     (vec
       (for [{shifts :shifts gotos :gotos :as v} 
             (cons (get table 0) (vals table-without-start))]
-        (assoc v :reduce (when-let [[sym n tag] (:reduce v)] [(syms-mapping sym) n tag])
-               :shifts (renum shifts) :gotos (-> gotos renum renum-gotosyms))))))
+        (assoc v :reduce (renum-action (:reduce v))
+               :eof (renum-action (:eof v))
+               :accept (renum-action (:accept v))
+               :shifts (renum shifts) :gotos (-> gotos renum renum-gotosyms)))))
+  
+)
 
 (comment
     (def g 
@@ -240,4 +315,3 @@
       (step t zero "((hello)"))
     
 )
-

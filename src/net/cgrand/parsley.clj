@@ -166,15 +166,17 @@
     kw))
 
 ;;;;;;;;;;;
-(defn grammar [options-map rules]
+(defn grammar [options-map & rules]
   (let [[options-map rules] (if-not (map? options-map)
                               [{} (cons options-map rules)]
                               [options-map rules])
         rules (partition 2 rules)
         public-rulenames (remove private? (map first rules))
-        {:keys [main space] :or {main (first public-rulenames) space #{[]}}} 
+        {:keys [main space root-tag] 
+         :or {main (first public-rulenames) root-tag ::root-tag space #{[]}}} 
           options-map
-        public-rulenames (set public-rulenames)
+        public-rulenames (-> (zipmap public-rulenames public-rulenames) 
+                           (assoc ::S root-tag))
         rules (concat rules 
                 [[::S (Root. main)] [::space (unspaced space)]])
         grammar (into {} (for [[name specs] rules]
@@ -183,9 +185,12 @@
         space (::space grammar)
         grammar (dissoc grammar ::space)
         grammar (-> grammar 
-                  (normalize space rewrites) 
-                  inline-empty-prods)]
-  [grammar public-rulenames])) 
+                  (normalize space rewrites)
+                  (assoc ::canary #{[::S ::eof]})
+                  inline-empty-prods)
+        matches-empty (contains? (grammar ::canary) [::eof])
+        grammar (dissoc grammar ::canary)]
+  [grammar public-rulenames matches-empty])) 
 
 (defrecord Node [tag content]) ; for memory
 
@@ -193,23 +198,23 @@
   (let [ops (merge
               {:make-node #(Node. %1 %2) 
                :make-leaf nil ; nil for identity
-               :make-unexpected #(Node. ::unexpected [%1])
-               :root-tag ::root}
+               :make-unexpected #(Node. ::unexpected [%1])}
               (select-keys options-map [:make-node :make-leaf :make-unexpected]))
-        options-map (merge options-map ops)
-        make-node (:make-node options-map)]
-    ^{::options options-map} ; feeling dirty, metadata mamke me uneasy
+        options-map (merge options-map ops)]
+    ^{::options options-map} ; feeling dirty, metadata make me uneasy
     (fn self
       ([s]
         (let [a (self core/zero s) b (self a nil)]
-          (when-let [r (f/stitch a b)]
-            (make-node (:root-tag options-map) (:nodes (nth r 2))))))
+          (-> (f/stitch a b) (nth 2) f/finish)))
       ([state s]
         (core/step table ops state s)))))
 
 (defn parser [options-map & rules]
-  (-> (grammar options-map rules) core/lr-table 
-    core/number-states (stepper options-map)))
+  (let [[options-map rules] (if-not (map? options-map)
+                              [{} (cons options-map rules)]
+                              [options-map rules])]
+    (-> (apply grammar options-map rules) core/lr-table core/totalize 
+      core/number-states (stepper options-map))))
 
 (defn- memoize-parser [f]
   (let [cache (atom nil)]
@@ -230,25 +235,35 @@
                          b (mpb a)]
                      (f/stitch a b))))
 
+(defn memoize-1shot [f]
+  (let [cache (atom [(Object.) nil])]
+    (fn [& args]
+      (let [[cargs cr] @cache]
+        (if (= args cargs)
+          cr
+          (let [r (apply f args)]
+            (reset! cache [args r])
+            r))))))
+
+(defn- memoize-eof [parser]
+  (let [mp (memoize1 parser nil)]
+    (memoize-1shot #(-> (f/stitch % (mp %)) (nth 2) f/finish))))
+
 (defn incremental-buffer [parser]
-  {:buffer
-     (t/buffer {:unit #(memoize1 parser %) 
-                :plus memoize2 
-                :chunk #(.split ^String % "(?<=\n)")
-                :left #(subs %1 0 %2) 
-                :right subs 
-                :cat str})
-   :eof-parser (memoize1 parser nil)
-   :options (::options (meta parser))})
+	  {:buffer (t/buffer {:unit #(memoize1 parser %) 
+                       :plus memoize2 
+                       :chunk #(.split ^String % "(?<=\n)")
+                       :left #(subs %1 0 %2) 
+                       :right subs 
+                       :cat str})
+    :eof-parser (memoize-eof parser)
+    :options (::options (meta parser))})
 
 (defn edit [incremental-buffer offset length s]
   (update-in incremental-buffer [:buffer] t/edit offset length s))
 
 (defn parse-tree [incremental-buffer]
   (let [f (t/value (:buffer incremental-buffer))
-        a (f core/zero)
-        b ((:eof-parser incremental-buffer) a)
-        {:keys [make-node root-tag]} (-> incremental-buffer :options)]
-    (when-let [x (f/stitch a b)]
-      (make-node root-tag (:nodes (nth x 2)))))) 
+        a (f core/zero)]
+    ((:eof-parser incremental-buffer) a))) 
 
