@@ -29,6 +29,11 @@
               (.add (- N n)))
             (.clear nodes)
             (.clear offsets))
+        (zero? N)
+          (when tag
+            (let [children (vec (.toArray nodes))]
+                (doto nodes .clear (.add (make-node tag children)))
+                (doto offsets .clear (.add 0))))
         :let [m (- n N)
               offset (.get offsets m)
               _ (-> offsets (.subList (inc m) n) .clear)]
