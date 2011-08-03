@@ -151,9 +151,7 @@
         [k (-> prods (inline-prods empty-prods) set (disj [k]))]))))  
              
 (defn inline-empty-prods [grammar]
-  (core/fix-point inline-empty-prods* grammar)) 
-
-
+  (u/fix-point inline-empty-prods* grammar)) 
 
 (defn- private? [kw]
   (.endsWith (name kw) "-"))

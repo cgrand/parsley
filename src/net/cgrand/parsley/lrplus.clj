@@ -162,20 +162,11 @@
     [[stack rem] watermark events start]))
 
 ;; LR+ table construction
-(defn fix-point [f init]
-  (let [v (f init)]
-    (if (= v init)
-      init
-      (recur f v))))
-
 (defn close [init-states state]
-  (fix-point (fn [state]
+  (u/fix-point (fn [state]
                (let [follows (map #(first (nth % 2)) state)]
                  (into state (mapcat init-states follows)))) 
     (set state)))
-
-(defn mapvals [map f]
-  (into map (for [[k v] map] [k (f k v)])))
 
 (defn filter-keys [map pred]
   (into {} (for [kv map :when (pred (key kv))] kv)))
@@ -186,7 +177,7 @@
 
 (defn transitions [close tags state]
   (u/cond
-    :let [follows (mapvals (follow-map state) #(close %2))
+    :let [follows (u/map-vals (follow-map state) #(close %2))
           gotos (filter-keys follows keyword?)
           shifts (filter-keys (dissoc follows nil) (complement gotos))
           reduces (follows nil)
