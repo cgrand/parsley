@@ -21,7 +21,7 @@
   (node! [this tag N]
     (let [n (.size offsets)]
       (u/cond 
-        (> N n)
+        (or (> N n) (neg? N))
           (do
             (doto pending
               (.add tag)
@@ -29,11 +29,6 @@
               (.add (- N n)))
             (.clear nodes)
             (.clear offsets))
-        (zero? N)
-          (when tag
-            (let [children (vec (.toArray nodes))]
-                (doto nodes .clear (.add (make-node tag children)))
-                (doto offsets .clear (.add 0))))
         :let [m (- n N)
               offset (.get offsets m)
               _ (-> offsets (.subList (inc m) n) .clear)]
@@ -73,6 +68,16 @@
 
 (defn cat [a b]
   @(cat! (folding-queue a) b))
+
+(defn finish [pfq]
+  (u/cond
+    :let [{:keys [pending nodes offsets make-node]} pfq]
+    (and (seq nodes) (seq pending))
+      nil
+    [[x & xs] (seq nodes)]
+      (when-not xs x)
+    [[[tag pnodes n] & xs] (seq (partition 3 pending))]
+      (when (and (not xs) (neg? n) tag) (make-node tag pnodes))))
 
 (defn stitchability 
   "Returns :full, or a number (the number of states on A stack which remains untouched)
