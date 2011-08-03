@@ -1,6 +1,6 @@
 (ns net.cgrand.parsley.util
-  "A collection of variations on Clojure's core macros. Let's see which features
-   end up being useful."
+  "Some functions and a collection of variations on Clojure's core macros. 
+   Let's see which features end up being useful."
   {:author "Christophe Grand"}
   (:refer-clojure :exclude [cond when-let if-let]))
 
@@ -48,5 +48,14 @@
               `(if-let ~test ~expr (cond ~@more-clauses))
             `(if ~test ~expr (cond ~@more-clauses))))))
       test)))
+
+(defn map-vals [map f]
+  (into map (for [[k v] map] [k (f k v)])))
+
+(defn fix-point [f init]
+  (let [v (f init)]
+    (if (= v init)
+      init
+      (recur f v))))
 
 
