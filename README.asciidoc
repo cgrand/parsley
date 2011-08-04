@@ -1,16 +1,16 @@
-= Parsley
+= Parsley =
 
-== Introduction 
+== Introduction == 
 
-Parsley generates total and truly incremental parsers.
+Parsley generates *total and truly incremental parsers*.
 
-Total: a Parsley parser yields a parse-tree for any input string.
+Total: a Parsley parser *yields a parse-tree for any input string*.
 
 Truly incremental: a Parsley parser can operate as a text buffer, in best cases
-recomputing the parse-tree after a sequence of edits happens in logarithmic 
-time (worst case: it behaves like a restartable parser).
+recomputing the parse-tree after a sequence of edits happens in *logarithmic 
+time* (worst case: it behaves like a restartable parser).
 
-Parsley parsers have no separate lexer, this allows for better compositionabilty
+Parsley parsers have *no separate lexer*, this allows for better compositionabilty
 of grammars. 
 For now Parsley uses the same technique as described in this paper: 
 Context-Aware Scanning for Parsing Extensible Languages
@@ -23,7 +23,7 @@ A grammar is an alternation of keywords (non-terminal names) and other values.
 A keyword and another value form a production rule.
 
 
-== Specifying grammars
+== Specifying grammars ==
 
 A simple grammar is:
 
@@ -31,27 +31,27 @@ A simple grammar is:
     :expr #{"x" ["(" :expr* ")"]}
 ----
     
-"x" "()" "(xx)" "((x)())" are recognized by this grammar.
+`x` `()` `(xx)` `((x)())` are recognized by this grammar.
 
 By default the main production of a grammar is the first one.
 
 A production right value is a combination of:
 * strings and regexes (terminals -- the set of terminal types is broader and
   even open, more later)
-* keywords (non-terminals) which can be suffixed by *, + or ? to denote 
+* keywords (non-terminals) which can be suffixed by `*`, `+` or `?` to denote 
   repetitions or options.
 * sets to denote an alternative
-* vectors to denote a sequence. Inside vectors :*, :+ and :? are postfix unary
-  operators. That is ["ab" :+] denotes a non-empty repetition of the "ab" 
+* vectors to denote a sequence. Inside vectors `:*`, `:+` and `:?` are postfix unary
+  operators. That is `["ab" :+]` denotes a non-empty repetition of the `ab` 
   string
 
-A production left value is always a keyword. If this keyword is suffixed by -,
+A production left value is always a keyword. If this keyword is suffixed by `-`,
 no node will be generated in the parse-tree for this rule, its child nodes are
 inlined in the parent node. Rules with such names are called anonymous rules.
-An anonymous rule must be referred to by its base name (without the -).
+An anonymous rule must be referred to by its base name (without the `-`).
 
 These two grammars specify the same language but the resulting parse-trees will
-be different (additional :expr-rep nodes):
+be different (additional `:expr-rep` nodes):
 
 ----
     :expr #{"x" ["(" :expr* ")"]}
@@ -74,9 +74,9 @@ These two grammars specify the same language and the same parse-trees:
 ----
 
 
-== Creating parsers
+== Creating parsers ==
 
-A parser is created using the parser or make-parser functions.
+A parser is created using the `parser` or `make-parser` functions.
 
 ----
     (require '[net.cgrand.parsley :as p])
@@ -112,7 +112,7 @@ A parser is created using the parser or make-parser functions.
 ----
           
 
-== Creating buffers
+== Creating buffers ==
 
 ----
     (-> p p/incremental-buffer (p/edit 0 0 "(") (p/edit 1 0 "(x)") p/parse-tree pprint)
@@ -126,6 +126,6 @@ A parser is created using the parser or make-parser functions.
 ----
 
 
-== Options
+== Options ==
 
 root tag, auto spacing, node generation, main rule
