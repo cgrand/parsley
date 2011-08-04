@@ -6,6 +6,8 @@
 ;   the terms of this license.
 ;   You must not remove this notice, or any other, from this software.
 
+;; THIS FILE IS OUT OF DATE
+
 (ns net.cgrand.parsley.demo
   (:use net.cgrand.parsley :reload-all)
   (:require [net.cgrand.parsley.internal :as core]))

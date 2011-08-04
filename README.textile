@@ -1,0 +1,117 @@
+h1. Parsley
+
+h2. Introduction 
+
+Parsley generates total and truly incremental parsers.
+
+Total: a Parsley parser yields a parse-tree for any input string.
+
+Truly incremental: a Parsley parser can operate as a text buffer, in best cases
+recomputing the parse-tree after a sequence of edits happens in logarithmic 
+time (worst case: it behaves like a restartable parser).
+
+Parsley parsers have no separate lexer, this allows for better compositionabilty
+of grammars. 
+For now Parsley use the same technique as described in this paper: 
+Context-Aware Scanning for Parsing Extensible Languages
+http://www.umsec.umn.edu/publications/Context-Aware-Scanning-Parsing-Extensible-Language
+
+(I independently rediscovered this technique and dubbed it LR+.)
+
+Without a separate lexer, a language is entirely defined by its grammar.
+A grammar is an alternation of keywords (non-terminal names) and other values.
+A keyword and another value form a production rule.
+
+
+h2. Specifying grammars
+
+A simple grammar is:
+
+    :expr #{"x" ["(" :expr* ")"]}
+    
+"x" "()" "(xx)" "((x)())" are recognized by this grammar.
+
+By default the main production of a grammar is the first one.
+
+A production right value is a combination of:
+* strings and regexes (terminals -- the set of terminal types is broader and
+  even open, more later)
+* keywords (non-terminals) which can be suffixed by *, + or ? to denote 
+  repetitions or options.
+* sets to denote an alternative
+* vectors to denote a sequence. Inside vectors :*, :+ and :? are postfix unary
+  operators. That is ["ab" :+] denotes a non-empty repetition of the "ab" 
+  string
+
+A production left value is always a keyword. If this keyword is suffixed by -,
+no node will be generated in the parse-tree for this rules, its child nodes are
+inlined in the parent node. Rules with such names are called anonymous rules.
+An anonymous rule must be referred to by its base name (without the -).
+
+These two grammars specify the same language but the resulting parse-trees will
+be different (additional :expr-rep nodes):
+
+    :expr #{"x" ["(" :expr* ")"]}
+
+    :expr #{"x" :expr-rep}
+    :expr-rep ["(" :expr* ")"]
+
+These two grammars specify the same language and the same parse-trees:
+
+    :expr #{"x" ["(" :expr* ")"]}
+
+    :expr #{"x" :expr-rep}
+    :expr-rep- ["(" :expr* ")"]
+
+
+h2. Creating parsers
+
+A parser is created using the parser or make-parser functions.
+
+    (require '[net.cgrand.parsley :as p])
+    (defn p (p/parser :expr #{"x" ["(" :expr* ")"]}))
+    (pprint (p "(x(x))"))
+    
+    {:tag :net.cgrand.parsley/root,
+     :content
+     [{:tag :expr,
+       :content
+       ["("
+        {:tag :expr, :content ["x"]}
+        {:tag :expr, :content ["(" {:tag :expr, :content ["x"]} ")"]}
+        ")"]}]}
+        
+    ; running on malformed input with garbage
+    (pprint (p "a(zldxn(dez)"))
+
+    {:tag :net.cgrand.parsley/unfinished,
+     :content
+     [{:tag :net.cgrand.parsley/unexpected, :content ["a"]}
+      {:tag :net.cgrand.parsley/unfinished,
+       :content
+       ["("
+        {:tag :net.cgrand.parsley/unexpected, :content ["zld"]}
+        {:tag :expr, :content ["x"]}
+        {:tag :net.cgrand.parsley/unexpected, :content ["n"]}
+        {:tag :expr,
+         :content
+         ["("
+          {:tag :net.cgrand.parsley/unexpected, :content ["dez"]}
+          ")"]}]}]}
+          
+
+h2. Creating buffers
+
+    (-> p p/incremental-buffer (p/edit 0 0 "(") (p/edit 1 0 "(x)") p/parse-tree pprint)
+
+    {:tag :net.cgrand.parsley/unfinished,
+     :content
+     [{:tag :net.cgrand.parsley/unfinished,
+       :content
+       ["("
+        {:tag :expr, :content ["(" {:tag :expr, :content ["x"]} ")"]}]}]}
+
+
+h2. Options
+
+root tag, auto spacing, node generation, main rule
