@@ -59,7 +59,7 @@
 (extend-protocol RuleFragment
   Object
     (unsugar [this]
-      this)
+      (if (= "" this) [] this))
     (collect [this unspaced top-rulename]
       nil)
     (develop [this rewrite space]
