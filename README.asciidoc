@@ -10,7 +10,7 @@ Truly incremental: a Parsley parser can operate as a text buffer, in best cases
 recomputing the parse-tree after a sequence of edits happens in *logarithmic 
 time* (worst case: it behaves like a restartable parser).
 
-Parsley parsers have *no separate lexer*, this allows for better compositionabilty
+Parsley parsers have *no separate lexer*, this allows for better compositionality
 of grammars. 
 For now Parsley uses the same technique as described in this paper: 
 Context-Aware Scanning for Parsing Extensible Languages
@@ -36,6 +36,7 @@ A simple grammar is:
 By default the main production of a grammar is the first one.
 
 A production right value is a combination of:
+
 * strings and regexes (terminals -- the set of terminal types is broader and
   even open, more later)
 * keywords (non-terminals) which can be suffixed by `*`, `+` or `?` to denote 
