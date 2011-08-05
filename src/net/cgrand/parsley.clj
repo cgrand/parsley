@@ -46,6 +46,12 @@
                               [options-map rules])]
     (make-parser options-map rules)))
 
+(defn unspaced 
+ "Creates an unspaced sequence." 
+ [& specs]
+  (apply g/unspaced specs))
+
+
 (defn- memoize-parser [f]
   (let [cache (atom nil)]
     (fn [input]
