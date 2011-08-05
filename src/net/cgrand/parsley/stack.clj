@@ -25,7 +25,7 @@
       this))
   (peek! [this]
     (let [i (unchecked-dec (.size list))] 
-      (set! wm (Math/min wm i))
+      (set! wm (Math/min (long wm) (long i)))
       (.get list i)))
   clojure.lang.IDeref
   (deref [this]
