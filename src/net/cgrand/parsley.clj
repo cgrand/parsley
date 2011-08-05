@@ -19,12 +19,15 @@
 (defrecord Node [tag content]) ; for memory efficiency
 
 (defn- stepper [table options-map]
-  (let [ops (merge
+  (let [options-map (merge
               {:make-node #(Node. %1 %2) 
-               :make-leaf nil ; nil for identity
-               :make-unexpected #(Node. ::unexpected [%1])}
-              (select-keys options-map [:make-node :make-leaf :make-unexpected]))
-        options-map (merge options-map ops)]
+               :make-leaf nil} ; nil for identity
+              options-map)
+        options-map (if-not (:make-unexpected options-map)
+                      (let [make-node (:make-node options-map)] 
+                        (assoc options-map :make-unexpected #(make-node ::unexpected [%])))
+                      options-map)
+        ops (select-keys options-map [:make-node :make-leaf :make-unexpected])]
     ^{::options options-map} ; feeling dirty, metadata make me uneasy
     (fn self
       ([s]
