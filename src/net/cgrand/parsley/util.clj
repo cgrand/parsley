@@ -38,16 +38,22 @@
   [& clauses]
   (when-let [[test expr & more-clauses] (seq clauses)]
     (if (next clauses)
-      (if (= :let test)
-        `(let ~expr (cond ~@more-clauses))
-        (if (= :when-let test)
-          `(when-let ~expr (cond ~@more-clauses))
-          (if (= :when test)
-            `(when ~expr (cond ~@more-clauses))
-            (if (vector? test)
-              `(if-let ~test ~expr (cond ~@more-clauses))
-            `(if ~test ~expr (cond ~@more-clauses))))))
+      (if-let [sym ({:let `let :when `when :when-let `when-let} test)]
+        (list sym expr `(cond ~@more-clauses))
+        (if (vector? test)
+          `(if-let ~test ~expr (cond ~@more-clauses))
+          `(if ~test ~expr (cond ~@more-clauses))))
       test)))
+
+(comment ;if one could define cond with itself it would read:
+  (cond
+    :when-let [[test expr & more-clauses] (seq clauses)]
+    (not (next clauses)) test
+    [sym ({:let `let :when `when :when-let `when-let} test)]
+      (list sym expr `(cond ~@more-clauses))
+    (vector? test)
+      `(if-let ~test ~expr (cond ~@more-clauses))
+    `(if ~test ~expr (cond ~@more-clauses))))
 
 (defn map-vals [map f]
   (into map (for [[k v] map] [k (f k v)])))
