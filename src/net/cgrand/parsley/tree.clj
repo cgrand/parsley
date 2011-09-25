@@ -11,6 +11,7 @@
   (left-cut [node offset])
   (right-cut [node offset])
   (value [node] "The result value for this node.")
+  (children [node] "For inner nodes, return their children.")
   (ops [node] "Returns a map of fns with keys:
   :unit [leaf-content] 
     turns a leaf content into a value from the result type, 
@@ -60,6 +61,7 @@
     length)
   (value [this] 
     val)
+  (children [node] (if c [a b c] [a b]))
   (ops [this] 
     ops))
 
@@ -95,6 +97,26 @@
             (map #(node ops %) (partition 2 (drop 3 nodes))))
       (map #(node ops %) (partition 2 nodes)))))
 
+(defn- left-borrow [lefts]
+  (or (u/cond
+        :when-let [[nodes & xs] (seq lefts)]
+        [r (peek nodes)]
+          (list* (children r) (pop nodes) xs)
+        :let [[nodes & xs] (left-borrow xs)]
+        [r (peek nodes)]
+          (list* (children r) (pop nodes) xs))
+      (cons nil lefts)))
+
+(defn- right-borrow [rights]
+  (or (u/cond
+        :when-let [[nodes & xs] (seq rights)]
+        [l (first nodes)]
+          (list* (children l) (next nodes) xs)
+        :let [[nodes & xs] (right-borrow xs)]
+        [l (first nodes)]
+          (list* (children l) (next nodes) xs))
+      (cons nil rights)))
+
 (defn edit 
   "Performs an edit on the buffer. Content from offset to offset+length (excluded) is replaced
    by s." 
@@ -104,11 +126,21 @@
         ops (ops tree)
         s ((:cat ops) sl s sr)
         leaves (map #(leaf ops %) ((:chunk ops) s))]
-    (loop [[l & lefts] lefts [r & rights] rights nodes leaves]
-      (let [nodes (concat l nodes r)]
-        (if (next nodes)
-          (recur lefts rights (group nodes))
-          (first nodes))))))
+    (loop [[l & ls :as lefts] lefts [r & rs :as rights] rights nodes leaves]
+      #_(assert (seq nodes))
+      (u/cond
+        :let [nodes (concat l nodes r)]
+        (next nodes)
+          (recur ls rs (group nodes))
+        ; it means that nodes has only one item and both l and r are empty
+        :let [lefts (left-borrow ls)]
+        (first lefts)
+          (recur lefts rights nodes)
+        :let [rights (right-borrow rs)]
+        (first rights)
+          (recur lefts rights nodes)
+        ; nothing left, we have a new root!
+        (first nodes)))))
 
 (defn buffer
   ([ops]
