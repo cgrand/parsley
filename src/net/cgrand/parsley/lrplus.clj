@@ -216,7 +216,7 @@
           accepts (filter (fn [[s _ r]] (= 0 s)) reduces)
           reduces (reduce disj reduces accepts)
           reduction (when-let [[sym n] (first reduces)] [sym n (tags sym)])
-          accept (when-let [[sym n] (first accepts)] [sym n (tags sym)])]
+          accept (when-let [[sym n] (first accepts)] [sym -1 (tags sym)])]
     (next reduces) 
       (throw (Exception. ^String (apply str "at state " state "\n  reduce/reduce conflict " (interpose "\n" reduces))))
     (and reduction (seq shifts))
