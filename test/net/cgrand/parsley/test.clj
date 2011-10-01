@@ -1,11 +1,21 @@
 (ns net.cgrand.parsley.test
   (:require [net.cgrand.parsley.lrplus :as core] :reload)
   (:require [net.cgrand.parsley :as p] :reload)
+  (:require [net.cgrand.parsley.util :as u])
   (:use clojure.test))
+
+(defn- unexpected? [x]
+  (when (and (vector? x) (= ::p/unexpected (first x)))
+    (second x)))
 
 (defn v [node]
   (if (map? node)
-    (into [(:tag node)] (map v (:content node)))
+    (reduce (fn [v x]
+              (u/if-let [b (unexpected? x)
+                         a (unexpected? (peek v))]
+                (conj (pop v) [::p/unexpected (str a b)])
+                (conj v x))) 
+      [(:tag node)] (map v (:content node)))
     node))
 
 (deftest empty-grammar
@@ -33,7 +43,7 @@
                          :root-tag :root}
                 :ws #"\s+"
                 :expr- #{:vector :list :map :set :symbol}
-                :symbol #"\w+"
+                :symbol #"[a-zA-Z-]+"
                 :vector ["[" :expr* "]"]
                 :list ["(" :expr* ")"]
                 :map ["{" :expr* "}"]
@@ -47,4 +57,6 @@
                                         [:symbol "kitty"] "}"] ")"]]
       "(hello #{world kitty])" [::p/unfinished [::p/unfinished "(" [:symbol "hello"] [:ws " "] 
                                        [::p/unfinished "#{" [:symbol "world"] [:ws " "] 
-                                        [:symbol "kitty"] [::p/unexpected "])"]]]])))
+                                        [:symbol "kitty"] [::p/unexpected "])"]]]]
+      "hello 123 world" [:root [:symbol "hello"] [:ws " "] [::p/unexpected "123 "] 
+                         [:symbol "world"]])))
