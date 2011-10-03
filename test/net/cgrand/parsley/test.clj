@@ -37,8 +37,7 @@
       "   " [:root [:ws "   "]]
       " a " [:root [:ws " "] [::p/unexpected "a "]])))
 
-(deftest sexpr
-  (let [sexpr (p/parser {:main :expr*
+(defn sexpr (p/parser {:main :expr*
                          :space :ws?
                          :root-tag :root}
                 :ws #"\s+"
@@ -47,16 +46,19 @@
                 :vector ["[" :expr* "]"]
                 :list ["(" :expr* ")"]
                 :map ["{" :expr* "}"]
-                :set ["#{" :expr* "}"])]
-    (are [s t] (= (v (sexpr s)) t)
+                :set ["#{" :expr* "}"]))
+
+(deftest sexpr-once
+  (are [s t] (= (v (sexpr s)) t)
       "" [:root]
       "hello world" [:root [:symbol "hello"] [:ws " "] [:symbol "world"]]
       " hello " [:root [:ws " "] [:symbol "hello"] [:ws " "]]
       "(hello #{world kitty})" [:root [:list "(" [:symbol "hello"] [:ws " "] 
                                        [:set "#{" [:symbol "world"] [:ws " "] 
                                         [:symbol "kitty"] "}"] ")"]]
-      "(hello #{world kitty])" [::p/unfinished [::p/unfinished "(" [:symbol "hello"] [:ws " "] 
-                                       [::p/unfinished "#{" [:symbol "world"] [:ws " "] 
-                                        [:symbol "kitty"] [::p/unexpected "])"]]]]
+      "(hello #{world kitty])" [::p/unfinished 
+                                [::p/unfinished "(" [:symbol "hello"] [:ws " "] 
+                                 [::p/unfinished "#{" [:symbol "world"] [:ws " "] 
+                                  [:symbol "kitty"] [::p/unexpected "])"]]]]
       "hello 123 world" [:root [:symbol "hello"] [:ws " "] [::p/unexpected "123 "] 
-                         [:symbol "world"]])))
+                         [:symbol "world"]]))
