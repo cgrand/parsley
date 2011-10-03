@@ -10,7 +10,8 @@
   "LR+ is LR(0) with contextual tokenizing."
   (:require [net.cgrand.parsley.fold :as f]
             [net.cgrand.parsley.util :as u]
-            [net.cgrand.parsley.stack :as st]))
+            [net.cgrand.parsley.stack :as st]
+            [net.cgrand.regex :as re]))
 
 (alias 'p 'net.cgrand.parsley) ; avoid circular dependency
 
@@ -57,6 +58,9 @@
             [-1]
           found 
             [(.end m) this])))
+  net.cgrand.regex.Regex
+    (match [this s eof]
+      (match (re/pattern this) s eof))
   clojure.lang.IFn
     (match [this s eof]
       (this s eof))
