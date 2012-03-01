@@ -303,8 +303,7 @@
                                             (assoc goto (syms-mapping sym) state))
                                        empty-goto goto))]
     (to-array
-      (doto
-        (for [{shifts :shifts gotos :gotos :as v} 
+      (for [{shifts :shifts gotos :gotos :as v} 
             (cons (get table 0) (vals table-without-start))]
         (-> v
           (dissoc :shifts)
@@ -312,8 +311,7 @@
                :eof (renum-action (:eof v))
                :accept (renum-action (:accept v))
                :token-matcher (token-matcher shifts)
-               :gotos (-> gotos renum renum-gotosyms to-array))))
-        clojure.pprint/pprint))))
+               :gotos (-> gotos renum renum-gotosyms to-array)))))))
 
 (comment
     (def g 
