@@ -15,7 +15,7 @@
 
 (alias 'p 'net.cgrand.parsley) ; avoid circular dependency
 
-; I independently figured out the sale technique as the one described
+; I independently figured out a technique similar to the one described
 ; in this paper: Context-Aware Scanning for Parsing Extensible Languages
 ; http://www.umsec.umn.edu/publications/Context-Aware-Scanning-Parsing-Extensible-Language
 
@@ -24,119 +24,109 @@
 (defn table-state [token-matcher shifts reduce goto accept & [eof]] 
   (TableState. token-matcher shifts reduce goto accept eof))
 
-(defprotocol TokenMatcher
-  (match [this s eof]))
+(def ^{:const true} incomplete [-1])
 
-(extend-protocol TokenMatcher
+(defn complete? [m]
+  (when-not (identical? m incomplete) m))
+
+(defprotocol MatcherFactory
+  (matcher-fn [this id]))
+
+(extend-protocol MatcherFactory
   nil
-    (match [this ^String s eof]
-      nil)
+    (matcher-fn [this id]
+      (fn [^String s eof]
+        nil))
   Character
-    (match [this ^String s eof]
-      (cond
-        (zero? (.length s))
-          (when-not eof [-1])
-        (== (int (.charAt s 0)) (int (.charValue this)))
-          [1 this] 
-        :else
-          nil))
+    (matcher-fn [this id]
+      (let [cv (int (.charValue this))]
+        (fn [^String s eof]
+          (cond
+            (zero? (.length s))
+          (when-not eof incomplete)
+            (== (int (.charAt s 0)) cv)
+          [1 id]))))
   String
-    (match [this ^String s eof]
-      (cond
-        (.startsWith s this)
-          [(.length this) this] 
-        eof
-          nil
-        (.startsWith this s)
-          [-1]))
+    (matcher-fn [this id]
+      (let [n (.length this)]
+        (fn [^String s eof]
+          (cond
+            (.startsWith s this)
+              [n id] 
+          eof
+            nil
+          (.startsWith this s)
+            incomplete))))
   java.util.regex.Pattern
-    (match [this s eof]
-      (let [m (re-matcher this s)
-            found (.lookingAt m)]
-        (cond
-          (and (not eof) (.hitEnd m))
-            [-1]
-          found 
-            [(.end m) this])))
-  net.cgrand.regex.Regex
-    (match [this s eof]
-      (match (re/pattern this) s eof))
-  clojure.lang.IFn
-    (match [this s eof]
-      (this s eof))
-  clojure.lang.APersistentSet
-    (match [this s eof]
-      (let [ns (keep #(match % s eof) this)]
-        (cond
-          (some #{[-1]} ns)
-            [-1]
-          (next ns)
-            (throw (Exception. (str "Ambiguous match for " (pr-str s) " by " (pr-str this))))
-          :else 
-            (first ns)))))
+    (matcher-fn [this id]
+      (fn [s eof]
+        (let [m (re-matcher this s)
+              found (.lookingAt m)]
+          (cond
+            (and (not eof) (.hitEnd m))
+              incomplete
+            found 
+              [(.end m) id]))))
+  clojure.lang.IFn ; TODO fix
+    (matcher-fn [this id]
+                (throw (RuntimeException. "TODO"))
+      (fn [s eof]
+        (this s eof))))
 
-(deftype UnionMatcher [^objects matchers]
-  TokenMatcher
-  (match [this s eof]
-    (loop [i (alength matchers) r nil]
-      (u/cond
-        (zero? i) r
+(defn array-union [matchers]
+  (let [matchers (to-array matchers)]
+    (fn [s eof]
+      (loop [i (alength matchers) r nil]
+        (u/cond
+          (zero? i) r
         :let [i (unchecked-dec i)
               m (aget matchers i)
-              mr (match m s eof)]
-        (= [-1] mr) [-1]
+              mr (m s eof)]
+        (identical? incomplete mr) incomplete
         (and r mr) 
-          (throw (Exception. (str "Ambiguous match for " (pr-str s) " by " (pr-str this))))
-        (recur i (or r mr))))))
+          (throw (Exception. (str "Ambiguous match for " (pr-str s) " by " (pr-str (seq matchers)))))
+        (recur i (or r mr)))))))
 
-(declare eq-ctm)
-
-(deftype CompoundTokenMatcher [^objects ascii-dispatch tm]
-  TokenMatcher
-    (match [this s eof]
-      (u/cond
-        :let [^String s s]
-        (zero? (.length s))
-          (match tm s eof)
-        :let [cp (.codePointAt s 0)]
-        (< cp (int 128))
-          (when-let [tm (aget ascii-dispatch cp)]
-            (match tm s eof))
-        (match tm s eof)))
-  Object
-    (hashCode [_] (.hashCode tm))
-    (equals [this that]
-      (boolean (eq-ctm this that)))
-    (toString [_] (str tm)))
-
-(defn- eq-ctm [^CompoundTokenMatcher this that]
-  (and (instance? CompoundTokenMatcher that) 
-       (= (.tm this) (.tm ^CompoundTokenMatcher that))))
-
-(defn prefix-matcher [token-matcher ^String s]
+(defn prefix-matcher [matcher s]
   (u/cond
-    :when-let [[n :as r] (match token-matcher s false)]
-    (neg? n) token-matcher
-    (constantly r)))
+    :when-let [r (matcher s false)]
+    (complete? r) (constantly r)
+    matcher))
 
-(defn matcher [tms]
-  (when (seq tms)
-    (if (next tms)
-      (let [qtable (to-array
-                     (map (fn [cp] 
-                            (let [s (str (char cp)) 
-                                  tms (filter #(prefix-matcher % s) tms)]
-                              (when (seq tms)
-                                (if (next tms)
-                                  (UnionMatcher. (to-array (set tms)))
-                                  (first tms))))) (range 128)))]
-        (CompoundTokenMatcher. qtable (set tms)))
-      (first tms))))
+(defn- matchers-union [matchers]
+  (let [qtable (to-array
+                 (map (fn [cp] 
+                        (let [s (str (char cp)) 
+                              ms (keep #(prefix-matcher % s) matchers)]
+                          (when (seq ms)
+                            (if (next ms)
+                              (array-union (to-array ms))
+                              (first ms))))) (range 128)))
+        m (array-union (to-array matchers))
+        on-eof (m "" true)]
+    (fn [^String s eof]
+      (u/cond
+        (zero? (.length s))
+          (if eof on-eof incomplete)
+          :let [cp (.codePointAt s 0)]
+          (< cp (int 128))
+            (when-let [m (aget qtable cp)]
+              (m s eof))
+          (m s eof)))))
+
+(defn matcher [terminals-set terminals-ids]
+  (u/cond
+    :let [ms (seq (map #(matcher-fn % (terminals-ids %)) terminals-set))]
+    (next ms)
+      (matchers-union ms)
+    ms
+      (first ms)
+    (constantly nil)))
 
 (defn- count-unexpected [tm s eof]
   (loop [n 1]
     (let [suf (subs s n)] 
-      (if (or (match tm suf eof) (empty? suf))
+      (if (or (tm suf eof) (empty? suf))
         n
         (recur (inc n))))))
 
@@ -169,15 +159,15 @@
             (st/push! stack ((:gotos cs) sym))
             (recur s))
         :let [tm (:token-matcher cs)]
-        [[n id] (match tm s eof)]
-          (if (neg? n)
-            [@stack s @fq]
+        [r (tm s eof)]
+          (if-let [[n id] (complete? r)]
             (let [token (subs s 0 n)
                   s (subs s n)
                   state ((:shifts cs) id)]
               (f/leaf! fq token)
               (st/push! stack state)
-              (recur s)))
+              (recur s))
+            [@stack s @fq])
         (not (empty? s)) ; unexpected input
           (let [n (count-unexpected tm s eof)]
             (f/unexpected! fq (subs s 0 n))
@@ -225,7 +215,7 @@
       (throw (Exception. ^String (apply str "at state " state "\n  reduce/reduce conflict " (interpose "\n" reduces))))
     (and reduction (seq shifts))
       (throw (Exception. (str "at state " state "\n shift/reduce conflict " shifts "\n" reduces)))
-    (table-state (matcher (keys shifts)) shifts reduction gotos accept)))
+    (table-state nil #_(matcher (keys shifts)) shifts reduction gotos accept)))
 
 (defn to-states [{:keys [gotos shifts]}]
   (concat (vals gotos) (vals shifts)))
@@ -249,7 +239,20 @@
         table (assoc table 0 (assoc (table state0) :accept (when matches-empty
                                                              [0 -1 (tags 0)])))
         ; state0 is unreachable by construction
-        table (dissoc table state0)]
+        table (dissoc table state0)
+        ; compute matchers and number them
+        terminals-sets (set (map (comp set keys :shifts) (vals table)))
+        terminals (reduce into terminals-sets)
+        terminals-ids (zipmap terminals (range))
+        matchers (into {}
+                   (for [terminals-set terminals-sets]
+                     [terminals-set (matcher terminals-set terminals-ids)]))
+        table (into table
+                (for [[state {:keys [shifts] :as transition}] table]
+                  (let [matcher (-> shifts keys set matchers)
+                        nshifts (vec (map shifts terminals))]
+                    [state (assoc transition :shifts nshifts
+                                  :token-matcher matcher)])))]
     table))
 
 (defn- eof-reduction [state]
@@ -295,10 +298,15 @@
                          (assoc-in [:gotos ::p/unfinished] ustate))])))
     table table)))
 
+(defn- fnvec [coll]
+  (let [a (to-array coll)]
+    (fn [i] (aget a i))))
+
 (defn number-states [table]
   (let [table-without-start (dissoc table 0)
         mapping (zipmap (cons 0 (keys table-without-start)) (range))
         renum (fn [m] (reduce #(update-in %1 [%2] mapping) m (keys m)))
+        renum-shifts  #(fnvec (map mapping %))
         syms (set (for [v (vals table) [x] [(:reduce v) (:eof v) (:accept v)] :when x] x))
         syms-mapping (zipmap syms (range))
         renum-action #(when-let [[sym n tag] %] [(syms-mapping sym) n tag])
@@ -306,15 +314,13 @@
         renum-gotosyms (fn [goto] (reduce (fn [goto [sym state]]
                                             (assoc goto (syms-mapping sym) state))
                                        empty-goto goto))]
-    (vec
+    (fnvec
       (for [{shifts :shifts gotos :gotos :as v} 
             (cons (get table 0) (vals table-without-start))]
         (assoc v :reduce (renum-action (:reduce v))
                :eof (renum-action (:eof v))
                :accept (renum-action (:accept v))
-               :shifts (renum shifts) :gotos (-> gotos renum renum-gotosyms)))))
-  
-)
+               :shifts (renum-shifts shifts) :gotos (-> gotos renum renum-gotosyms fnvec))))))
 
 (comment
     (def g 
