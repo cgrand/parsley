@@ -20,14 +20,14 @@
 ; http://www.umsec.umn.edu/publications/Context-Aware-Scanning-Parsing-Extensible-Language
 
 ;; pushdown automaton
-(defrecord TableState [token-matcher shifts reduce gotos accept eof])
-(defn table-state [token-matcher shifts reduce goto accept & [eof]] 
-  (TableState. token-matcher shifts reduce goto accept eof))
+(defrecord TableState [token-matcher reduce gotos accept eof])
+(defn table-state [shifts reduce goto accept & [eof]] 
+  (assoc (TableState. nil reduce goto accept eof) :shifts shifts))
 
 (def ^{:const true} incomplete [-1])
 
 (defn complete? [m]
-  (when-not (identical? m incomplete) m))
+  (when-not (or (identical? m incomplete) (neg? (nth m 0))) m))
 
 (defprotocol MatcherFactory
   (matcher-fn [this id]))
@@ -114,9 +114,9 @@
               (m s eof))
           (m s eof)))))
 
-(defn matcher [terminals-set terminals-ids]
+(defn matcher [terminals terminals-ids]
   (u/cond
-    :let [ms (seq (map #(matcher-fn % (terminals-ids %)) terminals-set))]
+    :let [ms (seq (map #(matcher-fn % (terminals-ids %)) (set terminals)))]
     (next ms)
       (matchers-union ms)
     ms
@@ -135,7 +135,7 @@
    water-mark the number of items at the bottom of the stack which didn't took 
    part in this step, buffer the remaining string to be tokenized, events the
    parsing events."
- [table ops stack rem s]
+ [^objects table ops stack rem s]
   (when (nil? stack)
     (throw (IllegalStateException. "Can't accept more input past EOF.")))
   (let [eof (nil? s)
@@ -146,7 +146,7 @@
     (loop [^String s s]
       (u/cond
         :when-let [state (st/peek! stack)
-                   cs (table state)]
+                   cs (aget table state)]
         [[sym n tag] (and (zero? (.length s)) (:accept cs))] 
           (if eof
             (do
@@ -154,16 +154,15 @@
               [(assoc @stack :stack nil) "" @fq])
             [@stack "" @fq])
         [[sym n tag] (:reduce cs)]
-          (let [cs (-> stack (st/popN! n) st/peek! table)]
+          (let [cs (aget table (-> stack (st/popN! n) st/peek!))]
             (f/node! fq tag n)
-            (st/push! stack ((:gotos cs) sym))
+            (st/push! stack (aget ^objects (:gotos cs) sym))
             (recur s))
         :let [tm (:token-matcher cs)]
         [r (tm s eof)]
-          (if-let [[n id] (complete? r)]
+          (if-let [[n state] (complete? r)]
             (let [token (subs s 0 n)
-                  s (subs s n)
-                  state ((:shifts cs) id)]
+                  s (subs s n)]
               (f/leaf! fq token)
               (st/push! stack state)
               (recur s))
@@ -176,7 +175,7 @@
         (let [[sym n tag] (:eof cs)
               cs (-> stack (st/popN! n) st/peek! table)
               _ (f/node! fq tag n)]
-          (st/push! stack ((:gotos cs) sym))
+          (st/push! stack (aget ^objects (:gotos cs) sym))
           (recur s))))))
 
 (def zero [[[0] ""] 0 nil nil])
@@ -215,7 +214,7 @@
       (throw (Exception. ^String (apply str "at state " state "\n  reduce/reduce conflict " (interpose "\n" reduces))))
     (and reduction (seq shifts))
       (throw (Exception. (str "at state " state "\n shift/reduce conflict " shifts "\n" reduces)))
-    (table-state nil #_(matcher (keys shifts)) shifts reduction gotos accept)))
+    (table-state shifts reduction gotos accept)))
 
 (defn to-states [{:keys [gotos shifts]}]
   (concat (vals gotos) (vals shifts)))
@@ -239,20 +238,7 @@
         table (assoc table 0 (assoc (table state0) :accept (when matches-empty
                                                              [0 -1 (tags 0)])))
         ; state0 is unreachable by construction
-        table (dissoc table state0)
-        ; compute matchers and number them
-        terminals-sets (set (map (comp set keys :shifts) (vals table)))
-        terminals (reduce into terminals-sets)
-        terminals-ids (zipmap terminals (range))
-        matchers (into {}
-                   (for [terminals-set terminals-sets]
-                     [terminals-set (matcher terminals-set terminals-ids)]))
-        table (into table
-                (for [[state {:keys [shifts] :as transition}] table]
-                  (let [matcher (-> shifts keys set matchers)
-                        nshifts (vec (map shifts terminals))]
-                    [state (assoc transition :shifts nshifts
-                                  :token-matcher matcher)])))]
+        table (dissoc table state0)]
     table))
 
 (defn- eof-reduction [state]
@@ -298,15 +284,17 @@
                          (assoc-in [:gotos ::p/unfinished] ustate))])))
     table table)))
 
-(defn- fnvec [coll]
-  (let [a (to-array coll)]
-    (fn [i] (aget a i))))
-
 (defn number-states [table]
-  (let [table-without-start (dissoc table 0)
+  (let [; number states
+        table-without-start (dissoc table 0)
         mapping (zipmap (cons 0 (keys table-without-start)) (range))
         renum (fn [m] (reduce #(update-in %1 [%2] mapping) m (keys m)))
-        renum-shifts  #(fnvec (map mapping %))
+        
+        ; compute matchers which return the shifted state id
+        token-matcher (memoize
+                        (fn [shifts]
+                          (matcher (keys shifts) (comp mapping shifts))))
+        
         syms (set (for [v (vals table) [x] [(:reduce v) (:eof v) (:accept v)] :when x] x))
         syms-mapping (zipmap syms (range))
         renum-action #(when-let [[sym n tag] %] [(syms-mapping sym) n tag])
@@ -314,13 +302,18 @@
         renum-gotosyms (fn [goto] (reduce (fn [goto [sym state]]
                                             (assoc goto (syms-mapping sym) state))
                                        empty-goto goto))]
-    (fnvec
-      (for [{shifts :shifts gotos :gotos :as v} 
+    (to-array
+      (doto
+        (for [{shifts :shifts gotos :gotos :as v} 
             (cons (get table 0) (vals table-without-start))]
-        (assoc v :reduce (renum-action (:reduce v))
+        (-> v
+          (dissoc :shifts)
+          (assoc :reduce (renum-action (:reduce v))
                :eof (renum-action (:eof v))
                :accept (renum-action (:accept v))
-               :shifts (renum-shifts shifts) :gotos (-> gotos renum renum-gotosyms fnvec))))))
+               :token-matcher (token-matcher shifts)
+               :gotos (-> gotos renum renum-gotosyms to-array))))
+        clojure.pprint/pprint))))
 
 (comment
     (def g 
