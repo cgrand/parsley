@@ -24,10 +24,10 @@
 (defn table-state [shifts reduce goto accept & [eof]] 
   (assoc (TableState. nil reduce goto accept eof) :shifts shifts))
 
-(def ^{:const true} incomplete [-1])
+(def incomplete [-1])
 
 (defn complete? [m]
-  (when-not (or (identical? m incomplete) (neg? (nth m 0))) m))
+  (when-not (or (= m incomplete) (neg? (nth m 0))) m))
 
 (defprotocol MatcherFactory
   (matcher-fn [this id]))
@@ -85,7 +85,7 @@
         :let [i (unchecked-dec i)
               m (aget matchers i)
               mr (m s eof)]
-        (identical? incomplete mr) incomplete
+        (= incomplete mr) incomplete
         (and r mr) 
           (throw (Exception. (str "Ambiguous match for " (pr-str s) " by " (pr-str (seq matchers)))))
         (recur i (or r mr)))))))
