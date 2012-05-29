@@ -163,6 +163,11 @@
         (keyword n)))
     kw))
 
+(defn- unalias [kw]
+  (keyword (namespace kw)
+           (let [n (name kw)]
+             (subs n (inc (.indexOf n "."))))))
+
 ;;;;;;;;;;;
 (defn grammar 
   [options-map & rules]
@@ -174,7 +179,7 @@
         {:keys [main space root-tag] 
          :or {main (first public-rulenames) root-tag ::p/root space #{[]}}} 
           options-map
-        public-rulenames (-> (zipmap public-rulenames public-rulenames) 
+        public-rulenames (-> (zipmap public-rulenames (map unalias public-rulenames)) 
                            (assoc ::p/S root-tag))
         rules (concat rules 
                 [[::p/S (Root. main)] [::space (unspaced space)]])
