@@ -67,6 +67,9 @@
               incomplete
             found 
               [(.end m) id]))))
+  net.cgrand.regex.Regex
+    (matcher-fn [this id]
+      (matcher-fn (:re this) id))
   clojure.lang.IFn ; TODO fix
     (matcher-fn [this id]
                 (throw (RuntimeException. "TODO"))
