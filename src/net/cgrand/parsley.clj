@@ -36,8 +36,13 @@
       ([state s]
         (core/step table ops state s)))))
 
+(defn- flatten-rules [rules]
+  (if (map? rules)
+    (apply concat rules)
+    rules))
+
 (defn make-parser [options-map rules]
-  (-> (apply g/grammar options-map rules) core/lr-table core/totalize 
+  (-> (apply g/grammar options-map (flatten-rules rules)) core/lr-table core/totalize 
     core/number-states (stepper options-map)))
 
 (defn parser [options-map & rules]
