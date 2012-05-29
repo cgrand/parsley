@@ -176,7 +176,7 @@
             (recur (subs s n)))
         ; unexpected eof
         (let [[sym n tag] (:eof cs)
-              cs (-> stack (st/popN! n) st/peek! table)
+              cs (aget table (-> stack (st/popN! n) st/peek!))
               _ (f/node! fq tag n)]
           (st/push! stack (aget ^objects (:gotos cs) sym))
           (recur s))))))
