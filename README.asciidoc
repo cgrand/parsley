@@ -83,7 +83,7 @@ A parser is created using the `parser` or `make-parser` functions.
 
 ----
 (require '[net.cgrand.parsley :as p])
-(defn p (p/parser :expr #{"x" ["(" :expr* ")"]}))
+(def p (p/parser :expr #{"x" ["(" :expr* ")"]}))
 (pprint (p "(x(x))"))
 
 {:tag :net.cgrand.parsley/root,
