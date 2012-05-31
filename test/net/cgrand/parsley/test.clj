@@ -1,6 +1,6 @@
 (ns net.cgrand.parsley.test
-  (:require [net.cgrand.parsley.lrplus :as core] :reload)
-  (:require [net.cgrand.parsley :as p] :reload)
+  (:require [net.cgrand.parsley :as p])
+  (:require [net.cgrand.parsley.lrplus :as core])
   (:require [net.cgrand.parsley.util :as u])
   (:use clojure.test))
 
@@ -37,9 +37,9 @@
       "   " [:root [:ws "   "]]
       " a " [:root [:ws " "] [::p/unexpected "a "]])))
 
-(defn sexpr (p/parser {:main :expr*
-                         :space :ws?
-                         :root-tag :root}
+(def sexpr (p/parser {:main :expr*
+                      :space :ws?
+                      :root-tag :root}
                 :ws #"\s+"
                 :expr- #{:vector :list :map :set :symbol}
                 :symbol #"[a-zA-Z-]+"
