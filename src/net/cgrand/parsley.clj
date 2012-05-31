@@ -24,8 +24,10 @@
                :make-leaf nil} ; nil for identity
               options-map)
         options-map (if-not (:make-unexpected options-map)
-                      (let [make-node (:make-node options-map)] 
-                        (assoc options-map :make-unexpected #(make-node ::unexpected [%])))
+                      (let [make-node (:make-node options-map)
+                            make-leaf (or (:make-leaf options-map) identity)] 
+                        (assoc options-map :make-unexpected 
+                               #(make-node ::unexpected [(make-leaf %)])))
                       options-map)
         ops (select-keys options-map [:make-node :make-leaf :make-unexpected])]
     ^{::options options-map} ; feeling dirty, metadata make me uneasy
