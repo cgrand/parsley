@@ -82,13 +82,14 @@
       (loop [i (alength matchers) r nil]
         (u/cond
           (zero? i) r
-        :let [i (unchecked-dec i)
-              m (aget matchers i)
-              mr (m s eof)]
-        (= incomplete mr) incomplete
-        (and r mr) 
-          (throw (Exception. (str "Ambiguous match for " (pr-str s) " by " (pr-str (seq matchers)))))
-        (recur i (or r mr)))))))
+          :let [i (unchecked-dec i)
+                m (aget matchers i)
+                mr (m s eof)]
+          (= incomplete mr) (recur i true)
+          (and r mr) 
+            (throw (Exception. (str "Ambiguous match for " (pr-str s) 
+                                    " by " (pr-str (filter #(% s eof) matchers)))))
+          (recur i (or r mr)))))))
 
 (defn prefix-matcher [matcher s]
   (u/cond
