@@ -85,10 +85,10 @@
           :let [i (unchecked-dec i)
                 m (aget matchers i)
                 mr (m s eof)]
-          (= incomplete mr) (recur i true)
+          (= incomplete mr) incomplete
           (and r mr) 
             (throw (Exception. (str "Ambiguous match for " (pr-str s) 
-                                    " by " (pr-str (filter #(% s eof) matchers)))))
+                                    " by " (pr-str matchers))))
           (recur i (or r mr)))))))
 
 (defn prefix-matcher [matcher s]
