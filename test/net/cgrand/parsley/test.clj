@@ -66,7 +66,7 @@
                          [:symbol "world"]]))
 
 ;; views
-#_(def fexpr (p/parser {:main :expr*
+(def fexpr (p/parser {:main :expr*
                       :space :ws?
                       :root-tag :root
                       :make-node f/fnode
@@ -80,13 +80,13 @@
                 :set ["#{" :expr* "}"]))
 
 (def input "(hello #{world kitty})")
-#_(def ftree (fexpr input))
+(def ftree (fexpr input))
 
-#_(deftest views
+(deftest views
   (are [v r] (= (v ftree) r)
     v/length (count input)
     v/text input
-    (v/view (constanly 0) (fn [_ xs] (reduce + 1 xs))) 8))
+    (v/view (constantly 0) (fn [_ xs] (reduce + 1 xs))) 8))
 
-#_(deftest path-to
+(deftest path-to
   (is (= (-> (v/path-to ftree 10) peek first v/text) "world")))
