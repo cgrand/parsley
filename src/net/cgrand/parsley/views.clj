@@ -1,71 +1,51 @@
-(ns net.cgrand.parsley.views
-  "Views on functional trees."
-  (:require [clojure.zip :as z]))
+(ns net.cgrand.parsley.views)
 
-;; Functional trees are trees-as-functions (a subset of objects-as-functions)
-;; A functional tree is a function of two arguments: leaf and node.
-;; leaf and node are two functions:
-;; * leaf takes one string and returns a value in a view domain,
-;; * node takes a tag (keyword) and a collection of children functional trees
-;;   and returns a value in the same view domain as leaf's.
-;; When a functional tree represent a leaf, leaf is called, when it's a inner
-;; node, node is called.
-;;
-;; The purpose of these functional trees (over maps for example) is that they
-;; can be memoizing and the caches are associated with the trees, not with
-;; the functions.
-;;
-;; It's an expedient implementation, better impl welcome.
-;;
-;; Alternative impls could be defrecord+memoization or using WeakReferences
+; Right now compute is responsible for memoization
+(defprotocol ViewableNode
+  (compute [n leaf node]
+    "Applies either the leaf or node function to the node at hand.
+     The leaf function expects one argument: a string.
+     The node function expects two arguments: a keyword and a collection of
+     children nodes."))
 
-(defn fleaf 
-  "Constructs a functional leaf."
-  [s]
-  (memoize (fn [leaf node]
-             (leaf s))))
-
-(defn fnode 
-  "Constructs a functional node." [tag content]
-  (memoize (fn [leaf node]
-             (node tag content))))
+; TODO: make Node and String Viewable + memoization
 
 (defn view 
   "Creates a simple recursive view function. The leaf function is passed
    the string stored into a leaf and the node function gets the tag and
-   the sequence of valus returned by the viesw recursively called on the
+   the sequence of values returned by the view recursively called on the
    children nodes."
   [leaf node]
   (letfn [(node* [tag fs]
             (node tag (map v fs)))
-          (v [f]
-            (f leaf node*))]
+          (v [n]
+            (compute n leaf node*))]
     v))
 
 (defn nonrec-view 
   "Creates a view function. Unlike view, the second arg passed to node is a
    collection of children functional trees." 
   [leaf node]
-  (fn [f] (f leaf node)))
+  (fn [n] (compute n leaf node)))
 
-(defn content 
-  "View that returns the nodes (or nil) of a functional tree."
-  [f]
-  (f (constantly nil) (fn [_ fs] fs)))
+(def content 
+  "View that returns the nodes (or nil) of a tree. Unlike :content works on
+   all viewable trees"
+  (nonrec-view (constantly nil) (fn [_ nodes] nodes)))
 
-(defn tag 
-  "View that returns the tag (or nil) of a functional tree."
-  [f]
-  (f (constantly nil) (fn [tag _] tag)))
+(def tag 
+  "View that returns the tag (or nil) of a functional tree. Unlike :tag works
+   on all viewable trees."
+  (nonrec-view (constantly nil) (fn [tag _] tag)))
 
 (def text
   (view identity #(apply str %2)))
 
-
 (def length
   (view count #(reduce + %2)))
 
-(def offsets 
+(def offsets
+  "View which returns a sorted-map of relative end offsets to children nodes."
   (nonrec-view (constantly nil)
                (fn [_ nodes]
                  (into (sorted-map) (next (reductions 
@@ -74,13 +54,13 @@
                                             [0 nil]
                                             nodes))))))
 
-;; zipper on functional trees
-(defn fzip [root]
+;; zipper on viewable trees
+#_(defn fzip [root]
   (z/zipper content content (fn [node children]
                               (fnode (tag node) (vec children)))))
 
 ;; we need indexed/measured zippers!
-(defn offset-at
+#_(defn offset-at
   "Returns the offset at the *start* of the node pointed by the loc. "
   [loc]
   (if-let [ploc (z/up loc)]
