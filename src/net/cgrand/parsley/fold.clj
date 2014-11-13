@@ -7,7 +7,8 @@
 ;   You must not remove this notice, or any other, from this software.
 
 (ns net.cgrand.parsley.fold
-  (:require [net.cgrand.parsley.util :as u]))
+  (:require [net.cgrand.parsley.util :as u])
+  (:refer-clojure :exclude [cat]))
 
 (defprotocol EphemeralFolding
   (unexpected! [this s])
